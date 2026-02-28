@@ -57,6 +57,7 @@ public class FinTubeActivityController : ControllerBase
             public string targetfilename { get; set; } = "";
             public bool audioonly { get; set; } = false;
             public string preset { get; set; } = "balanced";
+            public bool isPlaylist { get; set; } = false;
         }
 
         [HttpPost("submit_dl")]
@@ -167,12 +168,20 @@ public class FinTubeActivityController : ControllerBase
             args.Add("--parse-metadata \"%(uploader)s:%(artist)s\"");
             args.Add("--parse-metadata \"%(upload_date>%Y)s:%(meta_date)s\"");
 
-            // Output filename: use custom name or video title
             string outputTemplate;
-            if (!string.IsNullOrWhiteSpace(data.targetfilename))
-                outputTemplate = System.IO.Path.Combine(targetPath, $"{data.targetfilename}.%(ext)s");
+            if (data.isPlaylist)
+            {
+                args.Add("--yes-playlist");
+                outputTemplate = System.IO.Path.Combine(targetPath, "%(playlist_title)s", "%(title)s.%(ext)s");
+            }
             else
-                outputTemplate = System.IO.Path.Combine(targetPath, "%(title)s.%(ext)s");
+            {
+                args.Add("--no-playlist");
+                if (!string.IsNullOrWhiteSpace(data.targetfilename))
+                    outputTemplate = System.IO.Path.Combine(targetPath, $"{data.targetfilename}.%(ext)s");
+                else
+                    outputTemplate = System.IO.Path.Combine(targetPath, "%(title)s.%(ext)s");
+            }
 
             args.Add($"-o \"{outputTemplate}\"");
             args.Add(data.ytid);
@@ -245,6 +254,43 @@ public class FinTubeActivityController : ControllerBase
             }
         }
 
+        private static bool IsYouTubeUrl(string query)
+        {
+            return query.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                || query.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsPlaylistUrl(string query)
+        {
+            return IsYouTubeUrl(query)
+                && (query.Contains("list=", StringComparison.OrdinalIgnoreCase)
+                    || query.Contains("/playlist", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private YouTubeSearchResult ParseVideoJson(JsonElement root)
+        {
+            var id = root.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
+            if (string.IsNullOrEmpty(id)) return null!;
+
+            var thumbnail = "";
+            if (root.TryGetProperty("thumbnail", out var thumbEl))
+                thumbnail = thumbEl.GetString() ?? "";
+            if (string.IsNullOrEmpty(thumbnail))
+                thumbnail = $"https://img.youtube.com/vi/{id}/mqdefault.jpg";
+
+            return new YouTubeSearchResult
+            {
+                Id = id,
+                Title = root.TryGetProperty("title", out var titleEl) ? titleEl.GetString() ?? "" : "",
+                Channel = root.TryGetProperty("channel", out var chEl) ? chEl.GetString() ?? ""
+                        : root.TryGetProperty("uploader", out var upEl) ? upEl.GetString() ?? "" : "",
+                Duration = root.TryGetProperty("duration", out var durEl) && durEl.ValueKind == JsonValueKind.Number ? durEl.GetDouble() : 0,
+                Thumbnail = thumbnail,
+                Url = $"https://www.youtube.com/watch?v={id}",
+                ViewCount = root.TryGetProperty("view_count", out var vcEl) && vcEl.ValueKind == JsonValueKind.Number ? vcEl.GetInt64() : 0
+            };
+        }
+
         [HttpGet("search")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<ActionResult<Dictionary<string, object>>> SearchYouTube([FromQuery] string query, [FromQuery] int limit = 10)
@@ -261,8 +307,19 @@ public class FinTubeActivityController : ControllerBase
                 if (limit < 1) limit = 1;
                 if (limit > 30) limit = 30;
 
-                var searchArg = $"\"ytsearch{limit}:{query.Replace("\"", "\\\"")}\"";
-                var args = $"-j --no-download --no-playlist {searchArg}";
+                bool isPlaylist = IsPlaylistUrl(query);
+                bool isUrl = IsYouTubeUrl(query);
+
+                string args;
+                if (isPlaylist)
+                    args = $"-J --flat-playlist \"{query.Replace("\"", "\\\"")}\"";
+                else if (isUrl)
+                    args = $"-j --no-download --no-playlist \"{query.Replace("\"", "\\\"")}\"";
+                else
+                {
+                    var searchArg = $"\"ytsearch{limit}:{query.Replace("\"", "\\\"")}\"";
+                    args = $"-j --no-download --no-playlist {searchArg}";
+                }
 
                 _logger.LogInformation("FinTube Search: {exec} {args}", config.exec_YTDL, args);
 
@@ -290,43 +347,50 @@ public class FinTubeActivityController : ControllerBase
                 }
 
                 var results = new List<YouTubeSearchResult>();
-                var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                string playlistTitle = "";
+                string playlistUrl = "";
 
-                foreach (var line in lines)
+                if (isPlaylist)
                 {
                     try
                     {
-                        using var doc = JsonDocument.Parse(line);
+                        using var doc = JsonDocument.Parse(output);
                         var root = doc.RootElement;
 
-                        var id = root.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
-                        if (string.IsNullOrEmpty(id)) continue;
+                        playlistTitle = root.TryGetProperty("title", out var ptEl) ? ptEl.GetString() ?? "" : "";
+                        playlistUrl = root.TryGetProperty("webpage_url", out var puEl) ? puEl.GetString() ?? query : query;
 
-                        var thumbnail = "";
-                        if (root.TryGetProperty("thumbnail", out var thumbEl))
+                        if (root.TryGetProperty("entries", out var entriesEl) && entriesEl.ValueKind == JsonValueKind.Array)
                         {
-                            thumbnail = thumbEl.GetString() ?? "";
+                            foreach (var entry in entriesEl.EnumerateArray())
+                            {
+                                var result = ParseVideoJson(entry);
+                                if (result != null)
+                                    results.Add(result);
+                            }
                         }
-                        if (string.IsNullOrEmpty(thumbnail))
-                        {
-                            thumbnail = $"https://img.youtube.com/vi/{id}/mqdefault.jpg";
-                        }
-
-                        results.Add(new YouTubeSearchResult
-                        {
-                            Id = id,
-                            Title = root.TryGetProperty("title", out var titleEl) ? titleEl.GetString() ?? "" : "",
-                            Channel = root.TryGetProperty("channel", out var chEl) ? chEl.GetString() ?? ""
-                                    : root.TryGetProperty("uploader", out var upEl) ? upEl.GetString() ?? "" : "",
-                            Duration = root.TryGetProperty("duration", out var durEl) && durEl.ValueKind == JsonValueKind.Number ? durEl.GetDouble() : 0,
-                            Thumbnail = thumbnail,
-                            Url = root.TryGetProperty("url", out var urlEl) ? urlEl.GetString() ?? $"https://www.youtube.com/watch?v={id}" : $"https://www.youtube.com/watch?v={id}",
-                            ViewCount = root.TryGetProperty("view_count", out var vcEl) && vcEl.ValueKind == JsonValueKind.Number ? vcEl.GetInt64() : 0
-                        });
                     }
                     catch (JsonException ex)
                     {
-                        _logger.LogWarning("Failed to parse search result line: {error}", ex.Message);
+                        _logger.LogWarning("Failed to parse playlist JSON: {error}", ex.Message);
+                    }
+                }
+                else
+                {
+                    var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var line in lines)
+                    {
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(line);
+                            var result = ParseVideoJson(doc.RootElement);
+                            if (result != null)
+                                results.Add(result);
+                        }
+                        catch (JsonException ex)
+                        {
+                            _logger.LogWarning("Failed to parse search result line: {error}", ex.Message);
+                        }
                     }
                 }
 
@@ -337,7 +401,10 @@ public class FinTubeActivityController : ControllerBase
                 {
                     { "query", query },
                     { "results", results },
-                    { "count", results.Count }
+                    { "count", results.Count },
+                    { "isPlaylist", isPlaylist },
+                    { "playlistTitle", playlistTitle },
+                    { "playlistUrl", playlistUrl }
                 };
 
                 return Ok(response);

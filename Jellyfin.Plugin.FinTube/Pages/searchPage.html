@@ -42,7 +42,7 @@
 				<div style="display:flex;gap:8px;align-items:flex-end;">
 					<div style="flex:1;">
 						<label class="inputLabel">Search YouTube</label>
-						<input id="fintube-search-query" class="emby-input" type="text" placeholder="Enter search terms..." />
+						<input id="fintube-search-query" class="emby-input" type="text" placeholder="Search YouTube or paste a URL / playlist link..." />
 					</div>
 					<div style="width:100px;">
 						<label class="inputLabel">Results</label>
@@ -158,7 +158,7 @@
 					.then(function(data) {
 						loadingEl.style.display = 'none';
 						searchBtn.removeAttribute('disabled');
-						renderResults(data.results || []);
+						renderResults(data);
 					})
 					.catch(function(err) {
 						loadingEl.style.display = 'none';
@@ -188,17 +188,44 @@
 					return count + ' views';
 				}
 
-				function renderResults(results) {
+				function renderResults(data) {
 					var container = document.getElementById('fintube-search-results');
+					var results = data.results || [];
+
 					if (results.length === 0) {
 						container.innerHTML = '<div style="padding:30px;text-align:center;color:#888;">No results found.</div>';
 						return;
 					}
 
 					var html = '';
+
+					if (data.isPlaylist && data.playlistTitle) {
+						var escapedPlUrl = (data.playlistUrl || '').replace(/'/g, "\\'").replace(/\\/g, '\\\\');
+						html +=
+							'<div style="padding:16px;margin-bottom:16px;border-radius:10px;border:1px solid #5c6bc0;background:#1a1a2e;">' +
+								'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">' +
+									'<span class="material-icons" style="font-size:1.6em;color:#7c4dff;">playlist_play</span>' +
+									'<div>' +
+										'<div style="font-weight:bold;font-size:1.15em;color:#e0e0e0;">' + (data.playlistTitle || 'Playlist') + '</div>' +
+										'<div style="color:#aaa;font-size:.85em;">' + results.length + ' videos</div>' +
+									'</div>' +
+								'</div>' +
+								'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">' +
+									'<button type="button" onclick="downloadPlaylist(\'' + escapedPlUrl + '\', false)" ' +
+										'id="playlist-dl-video-btn" class="raised emby-button" is="emby-button" style="white-space:nowrap;">' +
+										'<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">download</span> Download All (Video)' +
+									'</button>' +
+									'<button type="button" onclick="downloadPlaylist(\'' + escapedPlUrl + '\', true)" ' +
+										'id="playlist-dl-audio-btn" class="raised emby-button" is="emby-button" style="white-space:nowrap;">' +
+										'<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">library_music</span> Download All (Audio)' +
+									'</button>' +
+								'</div>' +
+								'<div id="playlist-dl-status" style="margin-top:10px;"></div>' +
+							'</div>';
+					}
+
 					for (var i = 0; i < results.length; i++) {
 						var r = results[i];
-						var escapedTitle = (r.title || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
 						html +=
 							'<div id="search-result-' + i + '" style="display:flex;gap:16px;padding:12px;margin-bottom:8px;border-radius:8px;border:1px solid #333;background:#1a1a1e;align-items:flex-start;">' +
 								'<div style="flex-shrink:0;width:200px;">' +
@@ -282,6 +309,74 @@
 					.catch(function(err) {
 						for (var b = 0; b < buttons.length; b++) buttons[b].removeAttribute('disabled');
 						var errorMsg = 'Download failed';
+						if (err && err.responseJSON && err.responseJSON.message) errorMsg = err.responseJSON.message;
+						else if (err && err.statusText) errorMsg = err.statusText;
+						else if (err && err.message) errorMsg = err.message;
+						statusEl.innerHTML =
+							'<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;background:rgba(244,67,54,0.1);border:1px solid #f44336;">' +
+								'<span class="material-icons" style="color:#f44336;">error</span>' +
+								'<span style="color:#f44336;">' + errorMsg + '</span>' +
+							'</div>';
+					});
+				}
+
+				function downloadPlaylist(playlistUrl, audioOnly) {
+					var statusEl = document.getElementById('playlist-dl-status');
+					if (!fintubeConfig) {
+						statusEl.innerHTML = '<span style="color:#f44336;">Plugin configuration not loaded. Refresh the page.</span>';
+						return;
+					}
+
+					var targetPath = audioOnly
+						? (document.getElementById('fintube-audiopath').value || fintubeConfig.defaultAudioPath)
+						: (document.getElementById('fintube-videopath').value || fintubeConfig.defaultVideoPath);
+					if (!targetPath) {
+						statusEl.innerHTML = '<span style="color:#f44336;">Default ' + (audioOnly ? 'audio' : 'video') + ' path not configured. Open "Download Settings" above and set it.</span>';
+						return;
+					}
+
+					var videoBtn = document.getElementById('playlist-dl-video-btn');
+					var audioBtn = document.getElementById('playlist-dl-audio-btn');
+					if (videoBtn) videoBtn.setAttribute('disabled', 'true');
+					if (audioBtn) audioBtn.setAttribute('disabled', 'true');
+
+					statusEl.innerHTML =
+						'<div style="display:flex;align-items:center;gap:8px;">' +
+							'<span class="material-icons" style="color:#8ab4f8;animation:fintube-search-spin 1s linear infinite;">sync</span>' +
+							'<span style="color:#aaa;">Downloading entire playlist as ' + (audioOnly ? 'audio' : 'video') + '... This may take a while.</span>' +
+						'</div>';
+
+					var payload = {
+						ytid: playlistUrl,
+						targetlibrary: targetPath,
+						targetfolder: '',
+						targetfilename: '',
+						audioonly: audioOnly,
+						preset: document.getElementById('fintube-preset').value || 'balanced',
+						isPlaylist: true
+					};
+
+					var url = fintubeUrl('fintube/submit_dl', {});
+					ApiClient.ajax({
+						type: 'POST',
+						url: url,
+						dataType: 'json',
+						data: JSON.stringify(payload),
+						contentType: 'application/json'
+					})
+					.then(function(result) {
+						if (videoBtn) videoBtn.removeAttribute('disabled');
+						if (audioBtn) audioBtn.removeAttribute('disabled');
+						statusEl.innerHTML =
+							'<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;background:rgba(76,175,80,0.1);border:1px solid #4caf50;">' +
+								'<span class="material-icons" style="color:#4caf50;">check_circle</span>' +
+								'<span style="color:#4caf50;">Playlist download completed!</span>' +
+							'</div>';
+					})
+					.catch(function(err) {
+						if (videoBtn) videoBtn.removeAttribute('disabled');
+						if (audioBtn) audioBtn.removeAttribute('disabled');
+						var errorMsg = 'Playlist download failed';
 						if (err && err.responseJSON && err.responseJSON.message) errorMsg = err.responseJSON.message;
 						else if (err && err.statusText) errorMsg = err.statusText;
 						else if (err && err.message) errorMsg = err.message;
