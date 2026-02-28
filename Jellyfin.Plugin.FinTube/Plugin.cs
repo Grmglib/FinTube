@@ -55,6 +55,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 Name = @"FinTubeDownload",
                 EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Pages.downloadPage.html", GetType().Namespace),
                 EnableInMainMenu = true
+            },
+
+            new PluginPageInfo
+            {
+                Name = @"FinTubeSearch",
+                EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Pages.searchPage.html", GetType().Namespace),
+                EnableInMainMenu = true
             }
         };
     }

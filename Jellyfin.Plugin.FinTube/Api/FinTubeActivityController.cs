@@ -4,8 +4,11 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Mime;
+using System.Text.Json;
+using System.Threading.Tasks;
 using Jellyfin.Data.Entities;
 using Jellyfin.Plugin.FinTube.Configuration;
+using Jellyfin.Plugin.FinTube.Models;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
@@ -48,18 +51,12 @@ public class FinTubeActivityController : ControllerBase
 
         public class FinTubeData
         {
-            public string ytid {get; set;} = "";
-            public string targetlibrary{get; set;} = "";
-            public string targetfolder{get; set;} = "";
+            public string ytid { get; set; } = "";
+            public string targetlibrary { get; set; } = "";
+            public string targetfolder { get; set; } = "";
             public string targetfilename { get; set; } = "";
-            public bool audioonly{get; set;} = false;
-            public bool preferfreeformat{get; set;} = false;
-            public string videoresolution{get; set;} = "";
-            public string artist{get; set;} = "";
-            public string album{get; set;} = "";
-            public string title{get; set;} = "";
-            public int track{get; set;} = 0;
-
+            public bool audioonly { get; set; } = false;
+            public string preset { get; set; } = "balanced";
         }
 
         [HttpPost("submit_dl")]
@@ -68,97 +65,119 @@ public class FinTubeActivityController : ControllerBase
         {
             try
             {
-                _logger.LogInformation("FinTubeDownload : {ytid} to {targetfoldeer}, prefer free format: {preferfreeformat} audio only: {audioonly}", data.ytid, data.targetfolder, data.preferfreeformat, data.audioonly);
+                _logger.LogInformation("FinTubeDownload: {ytid} audioonly={audioonly} preset={preset}", data.ytid, data.audioonly, data.preset);
 
-                Dictionary<string, object> response = new Dictionary<string, object>();
-                PluginConfiguration? config = Plugin.Instance.Configuration;
-                String status = "";
-
-
-                // check binaries
-                if(!System.IO.File.Exists(config.exec_YTDL))
+                PluginConfiguration? config = Plugin.Instance?.Configuration;
+                if (config == null || !System.IO.File.Exists(config.exec_YTDL))
                     throw new Exception("YT-DL Executable configured incorrectly");
-                
-                bool hasid3v2 = System.IO.File.Exists(config.exec_ID3);
-                
 
-                // Ensure proper / separator
                 data.targetfolder = String.Join("/", data.targetfolder.Split("/", StringSplitOptions.RemoveEmptyEntries));
-                String targetPath = data.targetlibrary.EndsWith("/") ? data.targetlibrary + data.targetfolder : data.targetlibrary + "/" + data.targetfolder;
-                // Create Folder if it doesn't exist
-                if(!System.IO.Directory.CreateDirectory(targetPath).Exists)
+                String targetPath = data.targetlibrary.TrimEnd('/') + (string.IsNullOrEmpty(data.targetfolder) ? "" : "/" + data.targetfolder);
+
+                if (!System.IO.Directory.CreateDirectory(targetPath).Exists)
                     throw new Exception("Directory could not be created");
 
+                var args = BuildYtdlpArgs(data, targetPath);
 
-                // Check for tags
-                bool hasTags = 1 < (data.title.Length + data.album.Length + data.artist.Length + data.track.ToString().Length);
+                _logger.LogInformation("Exec: {exec} {args}", config.exec_YTDL, args);
 
-                // Save file with ytdlp as mp4 or mp3 depending on audioonly
-                String targetFilename;
-                String targetExtension = (data.preferfreeformat ? (data.audioonly ? @".opus" : @".webm") : (data.audioonly ? @".mp3" : @".mp4"));
-
-                if (!String.IsNullOrWhiteSpace(data.targetfilename))
-                    targetFilename = System.IO.Path.Combine(targetPath, $"{data.targetfilename}");
-                else if (data.audioonly && hasTags && data.title.Length > 1) // Use title Tag for filename
-                    targetFilename = System.IO.Path.Combine(targetPath, $"{data.title}");
-                else // Use YTID as filename
-                    targetFilename = System.IO.Path.Combine(targetPath, $"{data.ytid}");
-
-                // Check if filename exists
-                if(System.IO.File.Exists(targetFilename))
-                    throw new Exception($"File {targetFilename} already exists");
-
-                status += $"Filename: {targetFilename}<br>";
-
-                String args;
-                if(data.audioonly)
+                var startInfo = new ProcessStartInfo()
                 {
-                    args = "-x";
-                    if(data.preferfreeformat)
-                        args += " --prefer-free-format";
-                    else
-                        args += " --audio-format mp3";
-                    args += $" -o \"{targetFilename}.%(ext)s\" {data.ytid}";
-                }
-                else
+                    FileName = config.exec_YTDL,
+                    Arguments = args,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                var process = new Process() { StartInfo = startInfo };
+                process.Start();
+                var stdout = process.StandardOutput.ReadToEnd();
+                var stderr = process.StandardError.ReadToEnd();
+                process.WaitForExit();
+
+                var status = $"Preset: {data.preset}<br>";
+                status += $"Command: yt-dlp {args}<br>";
+
+                if (process.ExitCode != 0)
                 {
-                    if(data.preferfreeformat)
-                        args = "--prefer-free-format";
-                    else
-                        args = "-f mp4";
-                    if(!string.IsNullOrEmpty(data.videoresolution))
-                        args += $" -S res:{data.videoresolution}";
-                    args += $" -o \"{targetFilename}-%(title)s.%(ext)s\" {data.ytid}";
-                }
-
-                status += $"Exec: {config.exec_YTDL} {args}<br>";
-
-                var procyt = createProcess(config.exec_YTDL, args);
-                procyt.Start();
-                procyt.WaitForExit();
-
-                // If audioonly AND id3v2 AND tags are set - Tag the mp3 file
-                if (data.audioonly && hasid3v2 && hasTags)
-                {
-                    args = $"-a \"{data.artist}\" -A \"{data.album}\" -t \"{data.title}\" -T \"{data.track}\" \"{targetFilename}{targetExtension}\"";
-
-                    status += $"Exec: {config.exec_ID3} {args}<br>"; 
-
-                    var procid3 = createProcess(config.exec_ID3, args);
-                    procid3.Start();
-                    procid3.WaitForExit();
+                    _logger.LogError("yt-dlp failed (exit {code}): {stderr}", process.ExitCode, stderr);
+                    throw new Exception($"yt-dlp exited with code {process.ExitCode}: {stderr}");
                 }
 
                 status += "<font color='green'>File Saved!</font>";
 
-                response.Add("message", status);
+                var response = new Dictionary<string, object> { { "message", status } };
                 return Ok(response);
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 _logger.LogError(e, e.Message);
-                return StatusCode(500, new Dictionary<string, object>() {{"message", e.Message}});
+                return StatusCode(500, new Dictionary<string, object>() { { "message", e.Message } });
             }
+        }
+
+        private static string BuildYtdlpArgs(FinTubeData data, string targetPath)
+        {
+            var preset = data.preset ?? "balanced";
+            var args = new List<string>();
+
+            if (data.audioonly)
+            {
+                args.Add("-x");
+                switch (preset)
+                {
+                    case "best":
+                        args.Add("--audio-format mp3");
+                        args.Add("--audio-quality 0");
+                        break;
+                    case "small":
+                        args.Add("--audio-format mp3");
+                        args.Add("--audio-quality 9");
+                        break;
+                    default: // balanced
+                        args.Add("--audio-format mp3");
+                        args.Add("--audio-quality 5");
+                        break;
+                }
+            }
+            else
+            {
+                switch (preset)
+                {
+                    case "best":
+                        args.Add("-f \"bestvideo+bestaudio/best\"");
+                        args.Add("--merge-output-format mkv");
+                        break;
+                    case "small":
+                        args.Add("-f \"bestvideo[height<=720]+bestaudio/best[height<=720]\"");
+                        args.Add("--merge-output-format mp4");
+                        break;
+                    default: // balanced
+                        args.Add("-f \"bestvideo[height<=1080]+bestaudio/best[height<=1080]\"");
+                        args.Add("--merge-output-format mp4");
+                        break;
+                }
+            }
+
+            // Embed metadata and thumbnail in all presets
+            args.Add("--embed-thumbnail");
+            args.Add("--embed-metadata");
+            args.Add("--parse-metadata \"%(uploader)s:%(artist)s\"");
+            args.Add("--parse-metadata \"%(upload_date>%Y)s:%(meta_date)s\"");
+
+            // Output filename: use custom name or video title
+            string outputTemplate;
+            if (!string.IsNullOrWhiteSpace(data.targetfilename))
+                outputTemplate = System.IO.Path.Combine(targetPath, $"{data.targetfilename}.%(ext)s");
+            else
+                outputTemplate = System.IO.Path.Combine(targetPath, "%(title)s.%(ext)s");
+
+            args.Add($"-o \"{outputTemplate}\"");
+            args.Add(data.ytid);
+
+            return string.Join(" ", args);
         }
 
         [HttpGet("libraries")]
@@ -218,6 +237,110 @@ public class FinTubeActivityController : ControllerBase
             catch (UnauthorizedAccessException)
             {
                 return StatusCode(403, new Dictionary<string, object>() {{"message", $"Access denied: {path}"}});
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, e.Message);
+                return StatusCode(500, new Dictionary<string, object>() {{"message", e.Message}});
+            }
+        }
+
+        [HttpGet("search")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public async Task<ActionResult<Dictionary<string, object>>> SearchYouTube([FromQuery] string query, [FromQuery] int limit = 10)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(query))
+                    return StatusCode(400, new Dictionary<string, object>() {{"message", "Query is required"}});
+
+                PluginConfiguration? config = Plugin.Instance?.Configuration;
+                if (config == null || !System.IO.File.Exists(config.exec_YTDL))
+                    return StatusCode(500, new Dictionary<string, object>() {{"message", "YT-DL executable not configured correctly"}});
+
+                if (limit < 1) limit = 1;
+                if (limit > 30) limit = 30;
+
+                var searchArg = $"\"ytsearch{limit}:{query.Replace("\"", "\\\"")}\"";
+                var args = $"-j --no-download --no-playlist {searchArg}";
+
+                _logger.LogInformation("FinTube Search: {exec} {args}", config.exec_YTDL, args);
+
+                var startInfo = new ProcessStartInfo()
+                {
+                    FileName = config.exec_YTDL,
+                    Arguments = args,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                var process = new Process() { StartInfo = startInfo };
+                process.Start();
+
+                var output = await process.StandardOutput.ReadToEndAsync();
+                var errorOutput = await process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync();
+
+                if (process.ExitCode != 0 && string.IsNullOrWhiteSpace(output))
+                {
+                    _logger.LogError("yt-dlp search failed: {error}", errorOutput);
+                    return StatusCode(500, new Dictionary<string, object>() {{"message", $"Search failed: {errorOutput}"}});
+                }
+
+                var results = new List<YouTubeSearchResult>();
+                var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+                foreach (var line in lines)
+                {
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(line);
+                        var root = doc.RootElement;
+
+                        var id = root.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
+                        if (string.IsNullOrEmpty(id)) continue;
+
+                        var thumbnail = "";
+                        if (root.TryGetProperty("thumbnail", out var thumbEl))
+                        {
+                            thumbnail = thumbEl.GetString() ?? "";
+                        }
+                        if (string.IsNullOrEmpty(thumbnail))
+                        {
+                            thumbnail = $"https://img.youtube.com/vi/{id}/mqdefault.jpg";
+                        }
+
+                        results.Add(new YouTubeSearchResult
+                        {
+                            Id = id,
+                            Title = root.TryGetProperty("title", out var titleEl) ? titleEl.GetString() ?? "" : "",
+                            Channel = root.TryGetProperty("channel", out var chEl) ? chEl.GetString() ?? ""
+                                    : root.TryGetProperty("uploader", out var upEl) ? upEl.GetString() ?? "" : "",
+                            Duration = root.TryGetProperty("duration", out var durEl) && durEl.ValueKind == JsonValueKind.Number ? durEl.GetDouble() : 0,
+                            Thumbnail = thumbnail,
+                            Url = root.TryGetProperty("url", out var urlEl) ? urlEl.GetString() ?? $"https://www.youtube.com/watch?v={id}" : $"https://www.youtube.com/watch?v={id}",
+                            ViewCount = root.TryGetProperty("view_count", out var vcEl) && vcEl.ValueKind == JsonValueKind.Number ? vcEl.GetInt64() : 0
+                        });
+                    }
+                    catch (JsonException ex)
+                    {
+                        _logger.LogWarning("Failed to parse search result line: {error}", ex.Message);
+                    }
+                }
+
+                SearchResultsCache.LatestQuery = query;
+                SearchResultsCache.LatestResults = results;
+
+                var response = new Dictionary<string, object>
+                {
+                    { "query", query },
+                    { "results", results },
+                    { "count", results.Count }
+                };
+
+                return Ok(response);
             }
             catch (Exception e)
             {

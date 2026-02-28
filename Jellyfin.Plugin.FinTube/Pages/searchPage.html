@@ -1,0 +1,302 @@
+<div data-role="page" class="page type-interior pluginConfigurationPage"
+	 data-require="emby-button,emby-select,emby-checkbox">
+	<div data-role="content">
+		<div class="content-primary">
+			<h2>FinTube Search</h2>
+			<span>Search YouTube and download videos or audio directly to your library.</span>
+
+			<details id="fintube-pathconfig" style="margin:16px 0;padding:12px 16px;border:1px solid #333;border-radius:8px;background:#1a1a1e;">
+				<summary style="cursor:pointer;font-weight:bold;font-size:1em;padding:4px 0;">
+					<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">settings</span>
+					Download Settings
+					<span id="fintube-paths-indicator" style="font-weight:normal;font-size:.85em;color:#aaa;margin-left:8px;"></span>
+				</summary>
+				<div style="margin-top:12px;">
+					<div class="selectContainer">
+						<label class="inputLabel" for="fintube-preset">Quality Preset</label>
+						<select id="fintube-preset" class="emby-input">
+							<option value="best">Best Quality (highest resolution/bitrate)</option>
+							<option value="balanced" selected>Balanced (up to 1080p)</option>
+							<option value="small">Small Size (up to 720p, low bitrate)</option>
+						</select>
+						<div class="fieldDescription">All presets embed thumbnail and metadata (artist, date) automatically</div>
+					</div>
+					<div class="inputContainer">
+						<label class="inputLabel" for="fintube-videopath">Default Video Path</label>
+						<input id="fintube-videopath" class="emby-input" type="text" placeholder="/path/to/videos" />
+						<div class="fieldDescription">Destination folder for video downloads</div>
+					</div>
+					<div class="inputContainer">
+						<label class="inputLabel" for="fintube-audiopath">Default Audio Path</label>
+						<input id="fintube-audiopath" class="emby-input" type="text" placeholder="/path/to/music" />
+						<div class="fieldDescription">Destination folder for audio downloads</div>
+					</div>
+					<button type="button" is="emby-button" class="raised emby-button" onclick="savePathConfig()" style="margin-top:4px;">
+						<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">save</span> Save Settings
+					</button>
+					<span id="fintube-path-save-status" style="margin-left:10px;"></span>
+				</div>
+			</details>
+
+			<div style="margin:20px 0;">
+				<div style="display:flex;gap:8px;align-items:flex-end;">
+					<div style="flex:1;">
+						<label class="inputLabel">Search YouTube</label>
+						<input id="fintube-search-query" class="emby-input" type="text" placeholder="Enter search terms..." />
+					</div>
+					<div style="width:100px;">
+						<label class="inputLabel">Results</label>
+						<select id="fintube-search-limit" class="emby-input">
+							<option value="5">5</option>
+							<option value="10" selected>10</option>
+							<option value="20">20</option>
+						</select>
+					</div>
+					<button id="fintube-search-btn" type="button" is="emby-button" class="raised emby-button" onclick="performSearch()" style="margin-bottom:2px;white-space:nowrap;">
+						<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">search</span> Search
+					</button>
+				</div>
+			</div>
+
+			<div id="fintube-search-loading" style="display:none;padding:30px;text-align:center;">
+				<style>
+					@keyframes fintube-search-spin {
+						0% { transform: rotate(0deg); }
+						100% { transform: rotate(360deg); }
+					}
+				</style>
+				<span class="material-icons" style="font-size:2.5em;color:#8ab4f8;animation:fintube-search-spin 1s linear infinite;">sync</span>
+				<div style="margin-top:8px;color:#aaa;">Searching YouTube...</div>
+			</div>
+
+			<div id="fintube-search-error" style="display:none;margin:16px 0;padding:16px;border-radius:8px;border:1px solid #f44336;background:rgba(244,67,54,0.1);">
+				<div style="display:flex;align-items:center;gap:8px;">
+					<span class="material-icons" style="color:#f44336;">error</span>
+					<span id="fintube-search-error-msg" style="color:#f44336;"></span>
+				</div>
+			</div>
+
+			<div id="fintube-search-results" style="margin-top:16px;"></div>
+
+			<script type="text/javascript">
+				var fintubePluginId = 'd20aa9ed-eafc-4578-b320-4e3b7093129c';
+				var fintubeConfig = null;
+
+				function fintubeUrl(endpoint, params) {
+					var url = ApiClient.getUrl(endpoint);
+					var sep = url.indexOf('?') >= 0 ? '&' : '?';
+					var parts = [];
+					for (var k in params) parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+					return parts.length ? url + sep + parts.join('&') : url;
+				}
+
+				function loadConfig() {
+					return ApiClient.getPluginConfiguration(fintubePluginId).then(function(config) {
+						fintubeConfig = config;
+						document.getElementById('fintube-videopath').value = config.defaultVideoPath || '';
+						document.getElementById('fintube-audiopath').value = config.defaultAudioPath || '';
+						document.getElementById('fintube-preset').value = config.downloadPreset || 'balanced';
+						updatePathsIndicator();
+					});
+				}
+
+				function updatePathsIndicator() {
+					var vp = document.getElementById('fintube-videopath').value;
+					var ap = document.getElementById('fintube-audiopath').value;
+					var indicator = document.getElementById('fintube-paths-indicator');
+					if (vp && ap) {
+						indicator.innerHTML = '<span class="material-icons" style="font-size:.9em;vertical-align:middle;color:#4caf50;">check_circle</span> Configured';
+						indicator.style.color = '#4caf50';
+					} else {
+						indicator.innerHTML = '<span class="material-icons" style="font-size:.9em;vertical-align:middle;color:#ff9800;">warning</span> Not configured';
+						indicator.style.color = '#ff9800';
+					}
+				}
+
+				function savePathConfig() {
+					var statusEl = document.getElementById('fintube-path-save-status');
+					statusEl.innerHTML = '<span style="color:#aaa;">Saving...</span>';
+					ApiClient.getPluginConfiguration(fintubePluginId).then(function(config) {
+						config.defaultVideoPath = document.getElementById('fintube-videopath').value;
+						config.defaultAudioPath = document.getElementById('fintube-audiopath').value;
+						config.downloadPreset = document.getElementById('fintube-preset').value;
+						ApiClient.updatePluginConfiguration(fintubePluginId, config).then(function() {
+							fintubeConfig = config;
+							updatePathsIndicator();
+							statusEl.innerHTML = '<span class="material-icons" style="color:#4caf50;vertical-align:middle;">check_circle</span> <span style="color:#4caf50;">Saved!</span>';
+							setTimeout(function() { statusEl.innerHTML = ''; }, 3000);
+						});
+					}).catch(function() {
+						statusEl.innerHTML = '<span class="material-icons" style="color:#f44336;vertical-align:middle;">error</span> <span style="color:#f44336;">Failed to save</span>';
+					});
+				}
+
+				document.getElementById('fintube-search-query').addEventListener('keydown', function(e) {
+					if (e.key === 'Enter') {
+						e.preventDefault();
+						performSearch();
+					}
+				});
+
+				function performSearch() {
+					var query = document.getElementById('fintube-search-query').value.trim();
+					if (!query) return;
+
+					var limit = document.getElementById('fintube-search-limit').value;
+					var loadingEl = document.getElementById('fintube-search-loading');
+					var errorEl = document.getElementById('fintube-search-error');
+					var resultsEl = document.getElementById('fintube-search-results');
+					var searchBtn = document.getElementById('fintube-search-btn');
+
+					loadingEl.style.display = 'block';
+					errorEl.style.display = 'none';
+					resultsEl.innerHTML = '';
+					searchBtn.setAttribute('disabled', 'true');
+
+					var url = fintubeUrl('fintube/search', { query: query, limit: limit });
+					ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' })
+					.then(function(data) {
+						loadingEl.style.display = 'none';
+						searchBtn.removeAttribute('disabled');
+						renderResults(data.results || []);
+					})
+					.catch(function(err) {
+						loadingEl.style.display = 'none';
+						searchBtn.removeAttribute('disabled');
+						errorEl.style.display = 'block';
+						var msg = 'Search failed';
+						if (err && err.responseJSON && err.responseJSON.message) msg = err.responseJSON.message;
+						else if (err && err.statusText) msg = err.statusText;
+						else if (err && err.message) msg = err.message;
+						document.getElementById('fintube-search-error-msg').textContent = msg;
+					});
+				}
+
+				function formatDuration(seconds) {
+					if (!seconds || seconds <= 0) return '--:--';
+					var h = Math.floor(seconds / 3600);
+					var m = Math.floor((seconds % 3600) / 60);
+					var s = Math.floor(seconds % 60);
+					if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+					return m + ':' + String(s).padStart(2, '0');
+				}
+
+				function formatViews(count) {
+					if (!count || count <= 0) return '';
+					if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M views';
+					if (count >= 1000) return (count / 1000).toFixed(1) + 'K views';
+					return count + ' views';
+				}
+
+				function renderResults(results) {
+					var container = document.getElementById('fintube-search-results');
+					if (results.length === 0) {
+						container.innerHTML = '<div style="padding:30px;text-align:center;color:#888;">No results found.</div>';
+						return;
+					}
+
+					var html = '';
+					for (var i = 0; i < results.length; i++) {
+						var r = results[i];
+						var escapedTitle = (r.title || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+						html +=
+							'<div id="search-result-' + i + '" style="display:flex;gap:16px;padding:12px;margin-bottom:8px;border-radius:8px;border:1px solid #333;background:#1a1a1e;align-items:flex-start;">' +
+								'<div style="flex-shrink:0;width:200px;">' +
+									'<img src="' + (r.thumbnail || '') + '" style="width:200px;height:112px;object-fit:cover;border-radius:6px;background:#000;" />' +
+									'<div style="text-align:center;margin-top:4px;color:#aaa;font-size:.8em;">' + formatDuration(r.duration) + '</div>' +
+								'</div>' +
+								'<div style="flex:1;min-width:0;">' +
+									'<div style="font-weight:bold;font-size:1em;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+										'<a href="https://www.youtube.com/watch?v=' + r.id + '" target="_blank" style="color:#8ab4f8;text-decoration:none;">' + (r.title || 'Untitled') + '</a>' +
+									'</div>' +
+									'<div style="color:#aaa;font-size:.85em;margin-bottom:8px;">' +
+										(r.channel || '') +
+										(r.viewCount > 0 ? ' &middot; ' + formatViews(r.viewCount) : '') +
+									'</div>' +
+									'<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+										'<button type="button" onclick="downloadFromSearch(\'' + r.id + '\', false, ' + i + ')" ' +
+											'class="raised emby-button" is="emby-button" style="white-space:nowrap;font-size:.85em;">' +
+											'<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">videocam</span> Download Video' +
+										'</button>' +
+										'<button type="button" onclick="downloadFromSearch(\'' + r.id + '\', true, ' + i + ')" ' +
+											'class="raised emby-button" is="emby-button" style="white-space:nowrap;font-size:.85em;">' +
+											'<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">music_note</span> Download Audio' +
+										'</button>' +
+									'</div>' +
+									'<div id="search-result-status-' + i + '" style="margin-top:8px;"></div>' +
+								'</div>' +
+							'</div>';
+					}
+					container.innerHTML = html;
+				}
+
+				function downloadFromSearch(ytid, audioOnly, index) {
+					var statusEl = document.getElementById('search-result-status-' + index);
+					if (!fintubeConfig) {
+						statusEl.innerHTML = '<span style="color:#f44336;">Plugin configuration not loaded. Refresh the page.</span>';
+						return;
+					}
+
+					var targetPath = audioOnly
+						? (document.getElementById('fintube-audiopath').value || fintubeConfig.defaultAudioPath)
+						: (document.getElementById('fintube-videopath').value || fintubeConfig.defaultVideoPath);
+					if (!targetPath) {
+						statusEl.innerHTML = '<span style="color:#f44336;">Default ' + (audioOnly ? 'audio' : 'video') + ' path not configured. Open "Download Paths" above and set it.</span>';
+						return;
+					}
+
+					statusEl.innerHTML =
+						'<div style="display:flex;align-items:center;gap:8px;">' +
+							'<span class="material-icons" style="color:#8ab4f8;animation:fintube-search-spin 1s linear infinite;">sync</span>' +
+							'<span style="color:#aaa;">Downloading ' + (audioOnly ? 'audio' : 'video') + '...</span>' +
+						'</div>';
+
+					var buttons = document.getElementById('search-result-' + index).querySelectorAll('button');
+					for (var b = 0; b < buttons.length; b++) buttons[b].setAttribute('disabled', 'true');
+
+					var payload = {
+						ytid: ytid,
+						targetlibrary: targetPath,
+						targetfolder: '',
+						targetfilename: '',
+						audioonly: audioOnly,
+						preset: document.getElementById('fintube-preset').value || 'balanced'
+					};
+
+					var url = fintubeUrl('fintube/submit_dl', {});
+					ApiClient.ajax({
+						type: 'POST',
+						url: url,
+						dataType: 'json',
+						data: JSON.stringify(payload),
+						contentType: 'application/json'
+					})
+					.then(function(result) {
+						for (var b = 0; b < buttons.length; b++) buttons[b].removeAttribute('disabled');
+						statusEl.innerHTML =
+							'<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;background:rgba(76,175,80,0.1);border:1px solid #4caf50;">' +
+								'<span class="material-icons" style="color:#4caf50;">check_circle</span>' +
+								'<span style="color:#4caf50;">Download completed!</span>' +
+							'</div>';
+					})
+					.catch(function(err) {
+						for (var b = 0; b < buttons.length; b++) buttons[b].removeAttribute('disabled');
+						var errorMsg = 'Download failed';
+						if (err && err.responseJSON && err.responseJSON.message) errorMsg = err.responseJSON.message;
+						else if (err && err.statusText) errorMsg = err.statusText;
+						else if (err && err.message) errorMsg = err.message;
+						statusEl.innerHTML =
+							'<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;background:rgba(244,67,54,0.1);border:1px solid #f44336;">' +
+								'<span class="material-icons" style="color:#f44336;">error</span>' +
+								'<span style="color:#f44336;">' + errorMsg + '</span>' +
+							'</div>';
+					});
+				}
+
+				(function() {
+					loadConfig();
+				})();
+			</script>
+		</div>
+	</div>
+</div>

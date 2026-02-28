@@ -14,6 +14,9 @@ public class PluginConfiguration : BasePluginConfiguration
     {
         exec_YTDL = "/usr/local/bin/yt-dlp";
         exec_ID3 = "/usr/bin/id3v2";
+        defaultVideoPath = "";
+        defaultAudioPath = "";
+        downloadPreset = "balanced";
     }
 
     /// <summary>
@@ -25,4 +28,19 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Executable for ID3v2
     /// </summary>
     public string exec_ID3 { get; set; }
+
+    /// <summary>
+    /// Default download path for video files
+    /// </summary>
+    public string defaultVideoPath { get; set; }
+
+    /// <summary>
+    /// Default download path for audio files
+    /// </summary>
+    public string defaultAudioPath { get; set; }
+
+    /// <summary>
+    /// Download quality preset: "best", "balanced", or "small"
+    /// </summary>
+    public string downloadPreset { get; set; }
 }

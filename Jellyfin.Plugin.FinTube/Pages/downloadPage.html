@@ -33,8 +33,19 @@
 						</button>
 						<span id="fintube-exec-id3_status" style="margin-bottom:28px;font-size:1.2em;"></span>
 					</div>
+					<h3 style="margin-top:16px;">Default Download Paths</h3>
+					<div class="inputContainer">
+						<label class="inputLabel" for="fintube-dl-videopath">Default Video Path</label>
+						<input id="fintube-dl-videopath" class="emby-input" type="text" placeholder="/path/to/videos" />
+						<div class="fieldDescription">Destination folder for video downloads from search</div>
+					</div>
+					<div class="inputContainer">
+						<label class="inputLabel" for="fintube-dl-audiopath">Default Audio Path</label>
+						<input id="fintube-dl-audiopath" class="emby-input" type="text" placeholder="/path/to/music" />
+						<div class="fieldDescription">Destination folder for audio downloads from search</div>
+					</div>
 					<button type="button" is="emby-button" class="raised emby-button" onclick="saveExecConfig()" style="margin-top:4px;">
-						<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">save</span> Save Executable Settings
+						<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">save</span> Save Settings
 					</button>
 					<span id="fintube-exec-save-status" style="margin-left:10px;"></span>
 				</div>
@@ -69,12 +80,14 @@
 						<div class="fieldDescription">This is the filename if you want to override the yt-dl(p) default (optional)</div>
 					</div>
 
-					<div class="checkboxContainer checkboxContainer-withDescription">
-						<label class="emby-checkbox-label">
-							<input id="fintube-preferfreeformat" name="preferfreeformat" type="checkbox" is="emby-checkbox" data-embycheckbox="true" class="emby-checkbox">
-							<span class="checkboxLabel">Prefer free format</span>
-						<span class="checkboxOutline"><span class="material-icons checkboxIcon checkboxIcon-checked check" aria-hidden="true"></span><span class="material-icons checkboxIcon checkboxIcon-unchecked " aria-hidden="true"></span></span></label>
-						<div class="fieldDescription">Will usually download audio as .opus and videos as .webm</div>
+					<div class="selectContainer">
+						<label class="inputLabel" for="fintube-preset">Quality Preset</label>
+						<select id="fintube-preset" class="emby-input" name="fintube-preset">
+							<option value="best">Best Quality (highest resolution/bitrate)</option>
+							<option value="balanced" selected>Balanced (up to 1080p)</option>
+							<option value="small">Small Size (up to 720p, low bitrate)</option>
+						</select>
+						<div class="fieldDescription">All presets embed thumbnail and metadata (artist, date) automatically</div>
 					</div>
 
 					<div class="checkboxContainer checkboxContainer-withDescription">
@@ -82,49 +95,7 @@
 							<input id="fintube-audioonly" name="audioonly" type="checkbox" is="emby-checkbox" data-embycheckbox="true" class="emby-checkbox">
 							<span class="checkboxLabel">Audio Only</span>
 						<span class="checkboxOutline"><span class="material-icons checkboxIcon checkboxIcon-checked check" aria-hidden="true"></span><span class="material-icons checkboxIcon checkboxIcon-unchecked " aria-hidden="true"></span></span></label>
-						<div class="fieldDescription">Check this if you want to store as mp3, otherwise the file is saved in mp4</div>
-					</div>
-
-					<div id="fintube-videosettings">
-						<div class="selectContainer">
-							<label class="inputLabel" for="fintube-videoresolution">Video resolution</label>
-							<select id="fintube-videoresolution" class="emby-input" name="fintube-videoresolution">
-								<option value="">default</option>
-								<option value="240">240p</option>
-								<option value="360">360p</option>
-								<option value="480">480p</option>
-								<option value="720">720p</option>
-								<option value="1080" selected>1080p</option>
-								<option value="1440">2k</option>
-								<option value="2160">4k</option>
-							</select>
-							<div class="fieldDescription">Maximum desired resolution if available. Set to default if you want to download the best available.</div>
-						</div>
-					</div>
-
-					<div id="fintube-audiosettings" hidden>						
-						<h3>Audio Settings (Require id3v2 to be configured properly)</h3>
-						
-						<div class="inputContainer">
-							<label class="inputLabel">Artist</label>
-							<input id="fintube-artist" class="emby-input" name="fintube-artist" />
-						</div>
-
-						<div class="inputContainer">
-							<label class="inputLabel">Album</label>
-							<input id="fintube-album" class="emby-input" name="fintube-album" />
-						</div>
-
-						<div class="inputContainer">
-							<label class="inputLabel">Title</label>
-							<input id="fintube-title" class="emby-input" name="fintube-title" />
-						</div>
-
-						<div class="inputContainer">
-							<label class="inputLabel">Track #</label>
-							<input id="fintube-track" type="number" class="emby-input" name="fintube-track" />
-						</div>
-
+						<div class="fieldDescription">Check this to download as MP3 with embedded metadata. Otherwise downloads as video (MP4/MKV).</div>
 					</div>
 
 					<button id="fintube-submit" is="emby-button" type="submit" class="raised button-submit block emby-button">
@@ -170,6 +141,14 @@
 					var fintubePluginId = 'd20aa9ed-eafc-4578-b320-4e3b7093129c';
 					var browseTargetInput = null;
 
+					function fintubeUrl(endpoint, params) {
+						var url = ApiClient.getUrl(endpoint);
+						var sep = url.indexOf('?') >= 0 ? '&' : '?';
+						var parts = [];
+						for (var k in params) parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+						return parts.length ? url + sep + parts.join('&') : url;
+					}
+
 					// --- Browse modal ---
 					function openBrowseModal(targetInputId) {
 						browseTargetInput = targetInputId;
@@ -206,11 +185,8 @@
 					}
 
 					function browseTo(path) {
-						var url = ApiClient.getUrl('fintube/browse') + '&path=' + encodeURIComponent(path);
-						fetch(url, {
-							headers: { 'Authorization': 'MediaBrowser Token="' + ApiClient.accessToken() + '"' }
-						})
-						.then(function(r) { return r.json(); })
+						var url = fintubeUrl('fintube/browse', { path: path });
+						ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' })
 						.then(function(data) {
 							document.getElementById('dlBrowsePathInput').value = data.current || path;
 							document.getElementById('dlBrowseUpBtn').setAttribute('data-parent', data.parent || '');
@@ -255,11 +231,8 @@
 						if (!statusEl) return;
 						if (!path) { statusEl.innerHTML = ''; return; }
 
-						var url = ApiClient.getUrl('fintube/validate_path') + '&path=' + encodeURIComponent(path);
-						fetch(url, {
-							headers: { 'Authorization': 'MediaBrowser Token="' + ApiClient.accessToken() + '"' }
-						})
-						.then(function(r) { return r.json(); })
+						var url = fintubeUrl('fintube/validate_path', { path: path });
+						ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' })
 						.then(function(data) {
 							if (data.exists) {
 								statusEl.innerHTML = '<span class="material-icons" style="color:#4caf50;">check_circle</span>';
@@ -276,6 +249,8 @@
 						ApiClient.getPluginConfiguration(fintubePluginId).then(function(config) {
 							config.exec_YTDL = document.getElementById('fintube-exec-ytdl').value;
 							config.exec_ID3 = document.getElementById('fintube-exec-id3').value;
+							config.defaultVideoPath = document.getElementById('fintube-dl-videopath').value;
+							config.defaultAudioPath = document.getElementById('fintube-dl-audiopath').value;
 							ApiClient.updatePluginConfiguration(fintubePluginId, config).then(function() {
 								statusEl.innerHTML = '<span class="material-icons" style="color:#4caf50;vertical-align:middle;">check_circle</span> <span style="color:#4caf50;">Saved!</span>';
 								setTimeout(function() { statusEl.innerHTML = ''; }, 3000);
@@ -290,6 +265,9 @@
 						ApiClient.getPluginConfiguration(fintubePluginId).then(function(config) {
 							document.getElementById('fintube-exec-ytdl').value = config.exec_YTDL || '';
 							document.getElementById('fintube-exec-id3').value = config.exec_ID3 || '';
+							document.getElementById('fintube-dl-videopath').value = config.defaultVideoPath || '';
+							document.getElementById('fintube-dl-audiopath').value = config.defaultAudioPath || '';
+							document.getElementById('fintube-preset').value = config.downloadPreset || 'balanced';
 							validateExecPath('fintube-exec-ytdl');
 							validateExecPath('fintube-exec-id3');
 						});
@@ -384,8 +362,6 @@
 
 					document.getElementById('fintube-audioonly')
 						.addEventListener("change", function() {
-							document.getElementById('fintube-audiosettings').hidden = !this.checked;
-							document.getElementById('fintube-videosettings').hidden = this.checked;
 						});
 
 					document.querySelector('#FinTubeDLForm')
@@ -400,13 +376,8 @@
 								"targetlibrary":		getfintubeValue("targetlibrary"),
 								"targetfilename":		getfintubeValue("targetfilename"),
 								"targetfolder": 		getfintubeValue("targetfolder"),
-								"videoresolution":		getfintubeValue("videoresolution"),
 								"audioonly": 			document.getElementById("fintube-audioonly").checked,
-								"preferfreeformat": 	document.getElementById("fintube-preferfreeformat").checked,
-								"artist": 				getfintubeValue("artist"),
-								"album": 				getfintubeValue("album"),
-								"title": 				getfintubeValue("title"),
-								"track":				Number(getfintubeValue("track"))
+								"preset": 				getfintubeValue("preset")
 							}
 						
 
