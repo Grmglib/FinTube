@@ -9,15 +9,27 @@
         <div data-role="content">
             <div class="content-primary">
                 <form id="FinTubeConfigForm">
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="exec_YTDL">Exec YT-DL</label>
-                        <input id="exec_YTDL" name="exec_YTDL" type="text" is="emby-input" />
-                        <div class="fieldDescription">The executable filepath to youtube-dl/yt-dlp</div>
+                    <div class="inputContainer" style="display:flex;align-items:flex-end;gap:8px;">
+                        <div style="flex:1;">
+                            <label class="inputLabel inputLabelUnfocused" for="exec_YTDL">Exec YT-DL</label>
+                            <input id="exec_YTDL" name="exec_YTDL" type="text" is="emby-input" />
+                            <div class="fieldDescription">The executable filepath to youtube-dl/yt-dlp</div>
+                        </div>
+                        <button type="button" is="emby-button" class="raised emby-button" onclick="openBrowseModal('exec_YTDL')" style="margin-bottom:24px;white-space:nowrap;">
+                            <span class="material-icons" style="font-size:1.1em;vertical-align:middle;">folder_open</span> Browse
+                        </button>
+                        <span id="exec_YTDL_status" style="margin-bottom:28px;font-size:1.2em;"></span>
                     </div>
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="exec_ID3">Exec ID3</label>
-                        <input id="exec_ID3" name="exec_ID3" type="text" is="emby-input" />
-                        <div class="fieldDescription">The executable filepath to id3v2</div>
+                    <div class="inputContainer" style="display:flex;align-items:flex-end;gap:8px;">
+                        <div style="flex:1;">
+                            <label class="inputLabel inputLabelUnfocused" for="exec_ID3">Exec ID3</label>
+                            <input id="exec_ID3" name="exec_ID3" type="text" is="emby-input" />
+                            <div class="fieldDescription">The executable filepath to id3v2</div>
+                        </div>
+                        <button type="button" is="emby-button" class="raised emby-button" onclick="openBrowseModal('exec_ID3')" style="margin-bottom:24px;white-space:nowrap;">
+                            <span class="material-icons" style="font-size:1.1em;vertical-align:middle;">folder_open</span> Browse
+                        </button>
+                        <span id="exec_ID3_status" style="margin-bottom:28px;font-size:1.2em;"></span>
                     </div>
                     <div>
                         <button is="emby-button" type="submit" class="raised button-submit block emby-button">
@@ -27,10 +39,132 @@
                 </form>
             </div>
         </div>
+
+        <div id="browseModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,.7);justify-content:center;align-items:center;">
+            <div style="background:#1c1c1e;color:#fff;border-radius:10px;width:90%;max-width:600px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.5);">
+                <div style="padding:16px 20px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center;">
+                    <h3 style="margin:0;font-size:1.1em;">Browse Server Files</h3>
+                    <button type="button" onclick="closeBrowseModal()" style="background:none;border:none;color:#aaa;font-size:1.5em;cursor:pointer;padding:0 4px;">&times;</button>
+                </div>
+                <div style="padding:10px 20px;border-bottom:1px solid #333;display:flex;gap:8px;align-items:center;">
+                    <button type="button" id="browseUpBtn" onclick="browseUp()" style="background:#333;border:none;color:#fff;border-radius:4px;padding:6px 10px;cursor:pointer;">
+                        <span class="material-icons" style="font-size:1.1em;vertical-align:middle;">arrow_upward</span>
+                    </button>
+                    <input type="text" id="browsePathInput" style="flex:1;background:#2a2a2e;color:#fff;border:1px solid #444;border-radius:4px;padding:6px 10px;font-size:.9em;" />
+                    <button type="button" onclick="browseNavigate()" style="background:#333;border:none;color:#fff;border-radius:4px;padding:6px 10px;cursor:pointer;">Go</button>
+                </div>
+                <div id="browseContents" style="flex:1;overflow-y:auto;padding:8px 12px;min-height:200px;max-height:50vh;">
+                </div>
+                <div style="padding:12px 20px;border-top:1px solid #333;display:flex;justify-content:flex-end;gap:8px;">
+                    <button type="button" onclick="closeBrowseModal()" style="background:#444;color:#fff;border:none;border-radius:4px;padding:8px 16px;cursor:pointer;">Cancel</button>
+                </div>
+            </div>
+        </div>
+
         <script type="text/javascript">
             var TubeFinConfig = {
                 pluginUniqueId: 'd20aa9ed-eafc-4578-b320-4e3b7093129c'
             };
+
+            var browseTargetInput = null;
+            var browseCurrentPath = '/';
+
+            function openBrowseModal(targetInputId) {
+                browseTargetInput = targetInputId;
+                var currentVal = document.getElementById(targetInputId).value;
+                var startPath = '/';
+                if (currentVal) {
+                    var lastSlash = Math.max(currentVal.lastIndexOf('/'), currentVal.lastIndexOf('\\'));
+                    if (lastSlash > 0) startPath = currentVal.substring(0, lastSlash);
+                }
+                document.getElementById('browseModal').style.display = 'flex';
+                browseTo(startPath);
+            }
+
+            function closeBrowseModal() {
+                document.getElementById('browseModal').style.display = 'none';
+                browseTargetInput = null;
+            }
+
+            function browseNavigate() {
+                browseTo(document.getElementById('browsePathInput').value);
+            }
+
+            function browseUp() {
+                var parent = document.getElementById('browseUpBtn').getAttribute('data-parent');
+                if (parent) browseTo(parent);
+            }
+
+            function selectFile(filePath) {
+                if (browseTargetInput) {
+                    document.getElementById(browseTargetInput).value = filePath;
+                    validateExecPath(browseTargetInput);
+                }
+                closeBrowseModal();
+            }
+
+            function browseTo(path) {
+                var url = ApiClient.getUrl('fintube/browse') + '&path=' + encodeURIComponent(path);
+                fetch(url, {
+                    headers: { 'Authorization': 'MediaBrowser Token="' + ApiClient.accessToken() + '"' }
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    browseCurrentPath = data.current || path;
+                    document.getElementById('browsePathInput').value = browseCurrentPath;
+                    document.getElementById('browseUpBtn').setAttribute('data-parent', data.parent || '');
+                    document.getElementById('browseUpBtn').disabled = !data.parent;
+
+                    var html = '';
+                    if (data.directories && data.directories.length > 0) {
+                        for (var i = 0; i < data.directories.length; i++) {
+                            var d = data.directories[i];
+                            html += '<div style="padding:6px 8px;cursor:pointer;border-radius:4px;display:flex;align-items:center;gap:8px;" ' +
+                                'onmouseover="this.style.background=\'#333\'" onmouseout="this.style.background=\'none\'" ' +
+                                'ondblclick="browseTo(\'' + d.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\')">' +
+                                '<span class="material-icons" style="color:#f0c040;">folder</span>' +
+                                '<span>' + d.name + '</span></div>';
+                        }
+                    }
+                    if (data.files && data.files.length > 0) {
+                        for (var j = 0; j < data.files.length; j++) {
+                            var f = data.files[j];
+                            html += '<div style="padding:6px 8px;cursor:pointer;border-radius:4px;display:flex;align-items:center;gap:8px;" ' +
+                                'onmouseover="this.style.background=\'#333\'" onmouseout="this.style.background=\'none\'" ' +
+                                'onclick="selectFile(\'' + f.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\')">' +
+                                '<span class="material-icons" style="color:#8ab4f8;">insert_drive_file</span>' +
+                                '<span>' + f.name + '</span></div>';
+                        }
+                    }
+                    if (!html) {
+                        html = '<div style="padding:20px;text-align:center;color:#888;">Empty directory</div>';
+                    }
+                    document.getElementById('browseContents').innerHTML = html;
+                })
+                .catch(function(err) {
+                    document.getElementById('browseContents').innerHTML =
+                        '<div style="padding:20px;text-align:center;color:#f44;">Failed to browse: ' + err.message + '</div>';
+                });
+            }
+
+            function validateExecPath(inputId) {
+                var path = document.getElementById(inputId).value;
+                var statusEl = document.getElementById(inputId + '_status');
+                if (!path) { statusEl.innerHTML = ''; return; }
+
+                var url = ApiClient.getUrl('fintube/validate_path') + '&path=' + encodeURIComponent(path);
+                fetch(url, {
+                    headers: { 'Authorization': 'MediaBrowser Token="' + ApiClient.accessToken() + '"' }
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.exists) {
+                        statusEl.innerHTML = '<span class="material-icons" style="color:#4caf50;">check_circle</span>';
+                    } else {
+                        statusEl.innerHTML = '<span class="material-icons" style="color:#f44336;">cancel</span>';
+                    }
+                });
+            }
 
             document.querySelector('#FinTubeConfigPage')
                 .addEventListener('pageshow', function() {
@@ -38,9 +172,14 @@
                     ApiClient.getPluginConfiguration(TubeFinConfig.pluginUniqueId).then(function (config) {
                         document.querySelector('#exec_YTDL').value = config.exec_YTDL;
                         document.querySelector('#exec_ID3').value = config.exec_ID3;
+                        validateExecPath('exec_YTDL');
+                        validateExecPath('exec_ID3');
                         Dashboard.hideLoadingMsg();
                     });
                 });
+
+            document.getElementById('exec_YTDL').addEventListener('change', function() { validateExecPath('exec_YTDL'); });
+            document.getElementById('exec_ID3').addEventListener('change', function() { validateExecPath('exec_ID3'); });
 
             document.querySelector('#FinTubeConfigForm')
                 .addEventListener('submit', function(e) {

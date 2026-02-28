@@ -180,6 +180,64 @@ public class FinTubeActivityController : ControllerBase
             }
         }
 
+        [HttpGet("browse")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<Dictionary<string, object>> BrowseDirectory([FromQuery] string path = "/")
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                    path = "/";
+
+                var dirInfo = new DirectoryInfo(path);
+                if (!dirInfo.Exists)
+                    return StatusCode(404, new Dictionary<string, object>() {{"message", $"Directory not found: {path}"}});
+
+                var directories = dirInfo.GetDirectories()
+                    .Where(d => (d.Attributes & FileAttributes.Hidden) == 0)
+                    .Select(d => new { name = d.Name, path = d.FullName })
+                    .OrderBy(d => d.name)
+                    .ToArray();
+
+                var files = dirInfo.GetFiles()
+                    .Where(f => (f.Attributes & FileAttributes.Hidden) == 0)
+                    .Select(f => new { name = f.Name, path = f.FullName })
+                    .OrderBy(f => f.name)
+                    .ToArray();
+
+                var response = new Dictionary<string, object>
+                {
+                    { "current", dirInfo.FullName },
+                    { "parent", dirInfo.Parent?.FullName ?? "" },
+                    { "directories", directories },
+                    { "files", files }
+                };
+
+                return Ok(response);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return StatusCode(403, new Dictionary<string, object>() {{"message", $"Access denied: {path}"}});
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, e.Message);
+                return StatusCode(500, new Dictionary<string, object>() {{"message", e.Message}});
+            }
+        }
+
+        [HttpGet("validate_path")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<Dictionary<string, object>> ValidatePath([FromQuery] string path)
+        {
+            var response = new Dictionary<string, object>
+            {
+                { "exists", System.IO.File.Exists(path) },
+                { "path", path ?? "" }
+            };
+            return Ok(response);
+        }
+
         private static Process createProcess(String exe, String args)
         {
             ProcessStartInfo startInfo = new ProcessStartInfo() { FileName = exe, Arguments = args };
