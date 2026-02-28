@@ -78,7 +78,7 @@ public class FinTubeActivityController : ControllerBase
                 if (!System.IO.Directory.CreateDirectory(targetPath).Exists)
                     throw new Exception("Directory could not be created");
 
-                var args = BuildYtdlpArgs(data, targetPath, config.cookiesFilePath);
+                var args = BuildYtdlpArgs(data, targetPath);
 
                 _logger.LogInformation("Exec: {exec} {args}", config.exec_YTDL, args);
 
@@ -93,32 +93,30 @@ public class FinTubeActivityController : ControllerBase
                     });
                 }
 
-                var startInfo = new ProcessStartInfo()
-                {
-                    FileName = config.exec_YTDL,
-                    Arguments = args,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
+                var (exitCode, stdout, stderr) = await RunYtdlp(config.exec_YTDL, args);
 
-                var process = new Process() { StartInfo = startInfo };
-                process.Start();
-                var stdoutTask = process.StandardOutput.ReadToEndAsync();
-                var stderrTask = process.StandardError.ReadToEndAsync();
-                await Task.WhenAll(stdoutTask, stderrTask);
-                await process.WaitForExitAsync();
-                var stdout = stdoutTask.Result;
-                var stderr = stderrTask.Result;
+                if (exitCode != 0 && IsAgeRestrictionError(stderr))
+                {
+                    var browser = config.cookiesBrowser;
+                    if (!string.IsNullOrWhiteSpace(browser))
+                    {
+                        _logger.LogWarning("Age-restriction detected, retrying with cookies from {browser}...", browser);
+                        var retryArgs = BuildYtdlpArgs(data, targetPath, cookiesBrowser: browser);
+                        _logger.LogInformation("Retry exec: {exec} {args}", config.exec_YTDL, retryArgs);
+                        (exitCode, stdout, stderr) = await RunYtdlp(config.exec_YTDL, retryArgs);
+                    }
+                    else
+                    {
+                        throw new Exception("This video is age-restricted. Go to FinTube Settings and select your browser in 'Cookies Browser' to enable authentication. Make sure you are logged into YouTube in that browser.");
+                    }
+                }
 
                 var status = $"Preset: {data.preset}<br>";
-                status += $"Command: yt-dlp {args}<br>";
 
-                if (process.ExitCode != 0)
+                if (exitCode != 0)
                 {
-                    _logger.LogError("yt-dlp failed (exit {code}): {stderr}", process.ExitCode, stderr);
-                    throw new Exception($"yt-dlp exited with code {process.ExitCode}: {stderr}");
+                    _logger.LogError("yt-dlp failed (exit {code}): {stderr}", exitCode, stderr);
+                    throw new Exception($"yt-dlp exited with code {exitCode}: {stderr}");
                 }
 
                 status += "<font color='green'>File Saved!</font>";
@@ -133,14 +131,43 @@ public class FinTubeActivityController : ControllerBase
             }
         }
 
-        private static string BuildYtdlpArgs(FinTubeData data, string targetPath, string cookiesFilePath = "")
+        private static async Task<(int exitCode, string stdout, string stderr)> RunYtdlp(string executable, string args)
+        {
+            var startInfo = new ProcessStartInfo()
+            {
+                FileName = executable,
+                Arguments = args,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            var process = new Process() { StartInfo = startInfo };
+            process.Start();
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+            await Task.WhenAll(stdoutTask, stderrTask);
+            await process.WaitForExitAsync();
+            return (process.ExitCode, stdoutTask.Result, stderrTask.Result);
+        }
+
+        private static bool IsAgeRestrictionError(string stderr)
+        {
+            if (string.IsNullOrWhiteSpace(stderr)) return false;
+            return stderr.Contains("Sign in to confirm your age", StringComparison.OrdinalIgnoreCase)
+                || stderr.Contains("age-restricted", StringComparison.OrdinalIgnoreCase)
+                || stderr.Contains("This video may be inappropriate for some users", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string BuildYtdlpArgs(FinTubeData data, string targetPath, string cookiesBrowser = "")
         {
             var preset = data.preset ?? "balanced";
             var args = new List<string>();
 
-            if (!string.IsNullOrWhiteSpace(cookiesFilePath) && System.IO.File.Exists(cookiesFilePath))
+            if (!string.IsNullOrWhiteSpace(cookiesBrowser))
             {
-                args.Add($"--cookies \"{cookiesFilePath}\"");
+                args.Add($"--cookies-from-browser {cookiesBrowser}");
             }
 
             if (data.audioonly)
@@ -330,43 +357,37 @@ public class FinTubeActivityController : ControllerBase
                 bool isPlaylist = IsPlaylistUrl(query);
                 bool isUrl = IsYouTubeUrl(query);
 
-                var cookiesArg = "";
-                if (!string.IsNullOrWhiteSpace(config.cookiesFilePath) && System.IO.File.Exists(config.cookiesFilePath))
-                {
-                    cookiesArg = $"--cookies \"{config.cookiesFilePath}\" ";
-                }
-
                 string args;
                 if (isPlaylist)
-                    args = $"{cookiesArg}-J --flat-playlist \"{query.Replace("\"", "\\\"")}\"";
+                    args = $"-J --flat-playlist \"{query.Replace("\"", "\\\"")}\"";
                 else if (isUrl)
-                    args = $"{cookiesArg}-j --no-download --no-playlist \"{query.Replace("\"", "\\\"")}\"";
+                    args = $"-j --no-download --no-playlist \"{query.Replace("\"", "\\\"")}\"";
                 else
                 {
                     var searchArg = $"\"ytsearch{limit}:{query.Replace("\"", "\\\"")}\"";
-                    args = $"{cookiesArg}-j --no-download --no-playlist {searchArg}";
+                    args = $"-j --no-download --no-playlist {searchArg}";
                 }
 
                 _logger.LogInformation("FinTube Search: {exec} {args}", config.exec_YTDL, args);
 
-                var startInfo = new ProcessStartInfo()
+                var (exitCode, output, errorOutput) = await RunYtdlp(config.exec_YTDL, args);
+
+                if (exitCode != 0 && string.IsNullOrWhiteSpace(output) && isUrl && IsAgeRestrictionError(errorOutput))
                 {
-                    FileName = config.exec_YTDL,
-                    Arguments = args,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
+                    var browser = config.cookiesBrowser;
+                    if (!string.IsNullOrWhiteSpace(browser))
+                    {
+                        _logger.LogWarning("Age-restriction detected in search, retrying with cookies from {browser}...", browser);
+                        var retryArgs = $"--cookies-from-browser {browser} " + args;
+                        (exitCode, output, errorOutput) = await RunYtdlp(config.exec_YTDL, retryArgs);
+                    }
+                    else
+                    {
+                        return StatusCode(500, new Dictionary<string, object>() {{"message", "This video is age-restricted. Go to FinTube Settings and select your browser in 'Cookies Browser' to enable authentication. Make sure you are logged into YouTube in that browser."}});
+                    }
+                }
 
-                var process = new Process() { StartInfo = startInfo };
-                process.Start();
-
-                var output = await process.StandardOutput.ReadToEndAsync();
-                var errorOutput = await process.StandardError.ReadToEndAsync();
-                await process.WaitForExitAsync();
-
-                if (process.ExitCode != 0 && string.IsNullOrWhiteSpace(output))
+                if (exitCode != 0 && string.IsNullOrWhiteSpace(output))
                 {
                     _logger.LogError("yt-dlp search failed: {error}", errorOutput);
                     return StatusCode(500, new Dictionary<string, object>() {{"message", $"Search failed: {errorOutput}"}});

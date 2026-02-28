@@ -35,16 +35,17 @@
                         <div class="fieldDescription">Quality preset for downloads. All presets embed thumbnail and metadata automatically.</div>
                     </div>
                     <h3 style="margin-top:24px;">YouTube Authentication</h3>
-                    <div class="inputContainer" style="display:flex;align-items:flex-end;gap:8px;">
-                        <div style="flex:1;">
-                            <label class="inputLabel inputLabelUnfocused" for="cookiesFilePath">Cookies File Path</label>
-                            <input id="cookiesFilePath" name="cookiesFilePath" type="text" is="emby-input" />
-                            <div class="fieldDescription">Path to a Netscape-format cookies.txt file on the server. Required for age-restricted content. Export cookies from your browser using an extension like "Get cookies.txt LOCALLY", then place the file on the server.</div>
-                        </div>
-                        <button type="button" is="emby-button" class="raised emby-button" onclick="openBrowseModal('cookiesFilePath')" style="margin-bottom:24px;white-space:nowrap;">
-                            <span class="material-icons" style="font-size:1.1em;vertical-align:middle;">folder_open</span> Browse
-                        </button>
-                        <span id="cookiesFilePath_status" style="margin-bottom:28px;font-size:1.2em;"></span>
+                    <div class="selectContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="cookiesBrowser">Cookies Browser</label>
+                        <select id="cookiesBrowser" name="cookiesBrowser" is="emby-select" class="emby-select">
+                            <option value="">Disabled</option>
+                            <option value="firefox">Firefox</option>
+                            <option value="chrome">Chrome</option>
+                            <option value="edge">Edge</option>
+                            <option value="brave">Brave</option>
+                            <option value="opera">Opera</option>
+                        </select>
+                        <div class="fieldDescription">Select the browser to read YouTube cookies from for age-restricted content. The browser must be installed on the Jellyfin server and you must be logged into YouTube in that browser.</div>
                     </div>
                     <h3 style="margin-top:24px;">Default Download Paths</h3>
                     <div class="inputContainer" style="display:flex;align-items:flex-end;gap:8px;">
@@ -115,7 +116,7 @@
             }
 
             function isFileSelector(id) {
-                return id.startsWith('exec_') || id === 'cookiesFilePath';
+                return id.startsWith('exec_');
             }
 
             function openBrowseModal(targetInputId) {
@@ -232,17 +233,15 @@
                         document.querySelector('#defaultVideoPath').value = config.defaultVideoPath || '';
                         document.querySelector('#defaultAudioPath').value = config.defaultAudioPath || '';
                         document.querySelector('#downloadPreset').value = config.downloadPreset || 'balanced';
-                        document.querySelector('#cookiesFilePath').value = config.cookiesFilePath || '';
+                        document.querySelector('#cookiesBrowser').value = config.cookiesBrowser || '';
                         validateExecPath('exec_YTDL');
                         validateExecPath('exec_ID3');
-                        validateExecPath('cookiesFilePath');
                         Dashboard.hideLoadingMsg();
                     });
                 });
 
             document.getElementById('exec_YTDL').addEventListener('change', function() { validateExecPath('exec_YTDL'); });
             document.getElementById('exec_ID3').addEventListener('change', function() { validateExecPath('exec_ID3'); });
-            document.getElementById('cookiesFilePath').addEventListener('change', function() { validateExecPath('cookiesFilePath'); });
 
             document.querySelector('#FinTubeConfigForm')
                 .addEventListener('submit', function(e) {
@@ -253,7 +252,7 @@
                     config.defaultVideoPath = document.querySelector('#defaultVideoPath').value;
                     config.defaultAudioPath = document.querySelector('#defaultAudioPath').value;
                     config.downloadPreset = document.querySelector('#downloadPreset').value;
-                    config.cookiesFilePath = document.querySelector('#cookiesFilePath').value;
+                    config.cookiesBrowser = document.querySelector('#cookiesBrowser').value;
                     ApiClient.updatePluginConfiguration(TubeFinConfig.pluginUniqueId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     });
