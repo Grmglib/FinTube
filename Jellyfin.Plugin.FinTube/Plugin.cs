@@ -47,12 +47,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             new PluginPageInfo
             {
                 Name = this.Name,
-                EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Configuration.configPage.html", GetType().Namespace)
+                DisplayName = "FinTube Settings",
+                EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Configuration.configPage.html", GetType().Namespace),
+                EnableInMainMenu = true
             },
             
             new PluginPageInfo
             {
                 Name = @"FinTubeDownload",
+                DisplayName = "FinTube Download",
                 EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Pages.downloadPage.html", GetType().Namespace),
                 EnableInMainMenu = true
             },
@@ -60,6 +63,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             new PluginPageInfo
             {
                 Name = @"FinTubeSearch",
+                DisplayName = "FinTube Search",
                 EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Pages.searchPage.html", GetType().Namespace),
                 EnableInMainMenu = true
             }

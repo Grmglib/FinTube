@@ -17,6 +17,7 @@ public class PluginConfiguration : BasePluginConfiguration
         defaultVideoPath = "";
         defaultAudioPath = "";
         downloadPreset = "balanced";
+        cookiesFilePath = "";
     }
 
     /// <summary>
@@ -43,4 +44,9 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Download quality preset: "best", "balanced", or "small"
     /// </summary>
     public string downloadPreset { get; set; }
+
+    /// <summary>
+    /// Path to a Netscape-format cookies.txt file for YouTube authentication (age-restricted content)
+    /// </summary>
+    public string cookiesFilePath { get; set; }
 }

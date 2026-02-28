@@ -1,4 +1,4 @@
-<div data-role="page" class="page type-interior pluginConfigurationPage"
+<div data-role="page" class="page type-interior"
 	 data-require="emby-button,emby-select,emby-checkbox">
 	<div data-role="content">
 		<div class="content-primary">
@@ -385,8 +385,12 @@
 						url = window.ApiClient.getUrl(url);
 
 						window.ApiClient.sendCustomQuery(url, payload).then(function(result) {
-							setDownloadState(false);
-							showResult(true, result["message"]);
+							if (result && result.async && result.taskId) {
+								startDownloadPolling(result.taskId);
+							} else {
+								setDownloadState(false);
+								showResult(true, result["message"]);
+							}
 						}).catch(function(err) {
 							setDownloadState(false);
 							var errorMsg = 'An unexpected error occurred.';
@@ -400,6 +404,36 @@
 							showResult(false, errorMsg);
 						});
 					});
+
+					var dlPollInterval = null;
+					function startDownloadPolling(taskId) {
+						if (dlPollInterval) clearInterval(dlPollInterval);
+						dlPollInterval = setInterval(function() {
+							var statusUrl = fintubeUrl('fintube/task_status', { id: taskId });
+							ApiClient.ajax({ type: 'GET', url: statusUrl, dataType: 'json' })
+							.then(function(task) {
+								if (task.status === 'Completed') {
+									clearInterval(dlPollInterval);
+									dlPollInterval = null;
+									setDownloadState(false);
+									var msg = 'Download completed!';
+									if (task.videoCount > 0) msg = task.videoCount + ' videos downloaded successfully!';
+									showResult(true, msg);
+								} else if (task.status === 'Failed') {
+									clearInterval(dlPollInterval);
+									dlPollInterval = null;
+									setDownloadState(false);
+									showResult(false, task.error || 'Download failed');
+								} else {
+									var progressText = 'Downloading...';
+									if (task.videoCount > 0)
+										progressText = 'Downloading video ' + (task.completedCount + 1) + ' of ' + task.videoCount;
+									document.getElementById('fintube-loading').querySelector('div').textContent = progressText;
+								}
+							})
+							.catch(function() {});
+						}, 3000);
+					}
 
 					window.ApiClient.getLibraries = function() {
 						const url = window.ApiClient.getUrl("fintube/libraries");

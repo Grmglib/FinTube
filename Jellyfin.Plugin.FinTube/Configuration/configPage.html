@@ -1,11 +1,4 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title>FinTube</title>
-</head>
-<body>
-    <div id="FinTubeConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+<div id="FinTubeConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
         <div data-role="content">
             <div class="content-primary">
                 <form id="FinTubeConfigForm">
@@ -40,6 +33,18 @@
                             <option value="small">Small Size (up to 720p, MP4/MP3 low bitrate)</option>
                         </select>
                         <div class="fieldDescription">Quality preset for downloads. All presets embed thumbnail and metadata automatically.</div>
+                    </div>
+                    <h3 style="margin-top:24px;">YouTube Authentication</h3>
+                    <div class="inputContainer" style="display:flex;align-items:flex-end;gap:8px;">
+                        <div style="flex:1;">
+                            <label class="inputLabel inputLabelUnfocused" for="cookiesFilePath">Cookies File Path</label>
+                            <input id="cookiesFilePath" name="cookiesFilePath" type="text" is="emby-input" />
+                            <div class="fieldDescription">Path to a Netscape-format cookies.txt file on the server. Required for age-restricted content. Export cookies from your browser using an extension like "Get cookies.txt LOCALLY", then place the file on the server.</div>
+                        </div>
+                        <button type="button" is="emby-button" class="raised emby-button" onclick="openBrowseModal('cookiesFilePath')" style="margin-bottom:24px;white-space:nowrap;">
+                            <span class="material-icons" style="font-size:1.1em;vertical-align:middle;">folder_open</span> Browse
+                        </button>
+                        <span id="cookiesFilePath_status" style="margin-bottom:28px;font-size:1.2em;"></span>
                     </div>
                     <h3 style="margin-top:24px;">Default Download Paths</h3>
                     <div class="inputContainer" style="display:flex;align-items:flex-end;gap:8px;">
@@ -109,6 +114,10 @@
                 return parts.length ? url + sep + parts.join('&') : url;
             }
 
+            function isFileSelector(id) {
+                return id.startsWith('exec_') || id === 'cookiesFilePath';
+            }
+
             function openBrowseModal(targetInputId) {
                 browseTargetInput = targetInputId;
                 var currentVal = document.getElementById(targetInputId).value;
@@ -119,7 +128,7 @@
                 }
                 document.getElementById('browseModal').style.display = 'flex';
                 var selectFolderBtn = document.getElementById('selectCurrentFolderBtn');
-                selectFolderBtn.style.display = (!targetInputId.startsWith('exec_')) ? 'inline-block' : 'none';
+                selectFolderBtn.style.display = (!isFileSelector(targetInputId)) ? 'inline-block' : 'none';
                 browseTo(startPath);
             }
 
@@ -140,7 +149,7 @@
             function selectFile(filePath) {
                 if (browseTargetInput) {
                     document.getElementById(browseTargetInput).value = filePath;
-                    if (browseTargetInput.startsWith('exec_')) {
+                    if (isFileSelector(browseTargetInput)) {
                         validateExecPath(browseTargetInput);
                     }
                 }
@@ -163,7 +172,7 @@
                     document.getElementById('browseUpBtn').setAttribute('data-parent', data.parent || '');
                     document.getElementById('browseUpBtn').disabled = !data.parent;
 
-                    var isPathField = browseTargetInput && !browseTargetInput.startsWith('exec_');
+                    var isPathField = browseTargetInput && !isFileSelector(browseTargetInput);
                     var html = '';
                     if (data.directories && data.directories.length > 0) {
                         for (var i = 0; i < data.directories.length; i++) {
@@ -223,14 +232,17 @@
                         document.querySelector('#defaultVideoPath').value = config.defaultVideoPath || '';
                         document.querySelector('#defaultAudioPath').value = config.defaultAudioPath || '';
                         document.querySelector('#downloadPreset').value = config.downloadPreset || 'balanced';
+                        document.querySelector('#cookiesFilePath').value = config.cookiesFilePath || '';
                         validateExecPath('exec_YTDL');
                         validateExecPath('exec_ID3');
+                        validateExecPath('cookiesFilePath');
                         Dashboard.hideLoadingMsg();
                     });
                 });
 
             document.getElementById('exec_YTDL').addEventListener('change', function() { validateExecPath('exec_YTDL'); });
             document.getElementById('exec_ID3').addEventListener('change', function() { validateExecPath('exec_ID3'); });
+            document.getElementById('cookiesFilePath').addEventListener('change', function() { validateExecPath('cookiesFilePath'); });
 
             document.querySelector('#FinTubeConfigForm')
                 .addEventListener('submit', function(e) {
@@ -241,6 +253,7 @@
                     config.defaultVideoPath = document.querySelector('#defaultVideoPath').value;
                     config.defaultAudioPath = document.querySelector('#defaultAudioPath').value;
                     config.downloadPreset = document.querySelector('#downloadPreset').value;
+                    config.cookiesFilePath = document.querySelector('#cookiesFilePath').value;
                     ApiClient.updatePluginConfiguration(TubeFinConfig.pluginUniqueId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     });
@@ -250,6 +263,4 @@
                 return false;
             });
         </script>
-    </div>
-</body>
-</html>
+</div>

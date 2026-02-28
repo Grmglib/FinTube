@@ -62,11 +62,11 @@ public class FinTubeActivityController : ControllerBase
 
         [HttpPost("submit_dl")]
         [ProducesResponseType(StatusCodes.Status200OK)]
-        public ActionResult<Dictionary<string, object>> FinTubeDownload([FromBody] FinTubeData data)
+        public async Task<ActionResult<Dictionary<string, object>>> FinTubeDownload([FromBody] FinTubeData data)
         {
             try
             {
-                _logger.LogInformation("FinTubeDownload: {ytid} audioonly={audioonly} preset={preset}", data.ytid, data.audioonly, data.preset);
+                _logger.LogInformation("FinTubeDownload: {ytid} audioonly={audioonly} preset={preset} isPlaylist={isPlaylist}", data.ytid, data.audioonly, data.preset, data.isPlaylist);
 
                 PluginConfiguration? config = Plugin.Instance?.Configuration;
                 if (config == null || !System.IO.File.Exists(config.exec_YTDL))
@@ -78,9 +78,20 @@ public class FinTubeActivityController : ControllerBase
                 if (!System.IO.Directory.CreateDirectory(targetPath).Exists)
                     throw new Exception("Directory could not be created");
 
-                var args = BuildYtdlpArgs(data, targetPath);
+                var args = BuildYtdlpArgs(data, targetPath, config.cookiesFilePath);
 
                 _logger.LogInformation("Exec: {exec} {args}", config.exec_YTDL, args);
+
+                if (data.isPlaylist)
+                {
+                    var taskId = DownloadTaskManager.StartTask(config.exec_YTDL, args, _logger, isPlaylist: true);
+                    return Ok(new Dictionary<string, object>
+                    {
+                        { "taskId", taskId },
+                        { "async", true },
+                        { "message", "Playlist download started" }
+                    });
+                }
 
                 var startInfo = new ProcessStartInfo()
                 {
@@ -94,9 +105,12 @@ public class FinTubeActivityController : ControllerBase
 
                 var process = new Process() { StartInfo = startInfo };
                 process.Start();
-                var stdout = process.StandardOutput.ReadToEnd();
-                var stderr = process.StandardError.ReadToEnd();
-                process.WaitForExit();
+                var stdoutTask = process.StandardOutput.ReadToEndAsync();
+                var stderrTask = process.StandardError.ReadToEndAsync();
+                await Task.WhenAll(stdoutTask, stderrTask);
+                await process.WaitForExitAsync();
+                var stdout = stdoutTask.Result;
+                var stderr = stderrTask.Result;
 
                 var status = $"Preset: {data.preset}<br>";
                 status += $"Command: yt-dlp {args}<br>";
@@ -119,10 +133,15 @@ public class FinTubeActivityController : ControllerBase
             }
         }
 
-        private static string BuildYtdlpArgs(FinTubeData data, string targetPath)
+        private static string BuildYtdlpArgs(FinTubeData data, string targetPath, string cookiesFilePath = "")
         {
             var preset = data.preset ?? "balanced";
             var args = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(cookiesFilePath) && System.IO.File.Exists(cookiesFilePath))
+            {
+                args.Add($"--cookies \"{cookiesFilePath}\"");
+            }
 
             if (data.audioonly)
             {
@@ -172,6 +191,7 @@ public class FinTubeActivityController : ControllerBase
             if (data.isPlaylist)
             {
                 args.Add("--yes-playlist");
+                args.Add("--ignore-errors");
                 outputTemplate = System.IO.Path.Combine(targetPath, "%(playlist_title)s", "%(title)s.%(ext)s");
             }
             else
@@ -310,15 +330,21 @@ public class FinTubeActivityController : ControllerBase
                 bool isPlaylist = IsPlaylistUrl(query);
                 bool isUrl = IsYouTubeUrl(query);
 
+                var cookiesArg = "";
+                if (!string.IsNullOrWhiteSpace(config.cookiesFilePath) && System.IO.File.Exists(config.cookiesFilePath))
+                {
+                    cookiesArg = $"--cookies \"{config.cookiesFilePath}\" ";
+                }
+
                 string args;
                 if (isPlaylist)
-                    args = $"-J --flat-playlist \"{query.Replace("\"", "\\\"")}\"";
+                    args = $"{cookiesArg}-J --flat-playlist \"{query.Replace("\"", "\\\"")}\"";
                 else if (isUrl)
-                    args = $"-j --no-download --no-playlist \"{query.Replace("\"", "\\\"")}\"";
+                    args = $"{cookiesArg}-j --no-download --no-playlist \"{query.Replace("\"", "\\\"")}\"";
                 else
                 {
                     var searchArg = $"\"ytsearch{limit}:{query.Replace("\"", "\\\"")}\"";
-                    args = $"-j --no-download --no-playlist {searchArg}";
+                    args = $"{cookiesArg}-j --no-download --no-playlist {searchArg}";
                 }
 
                 _logger.LogInformation("FinTube Search: {exec} {args}", config.exec_YTDL, args);
@@ -414,6 +440,33 @@ public class FinTubeActivityController : ControllerBase
                 _logger.LogError(e, e.Message);
                 return StatusCode(500, new Dictionary<string, object>() {{"message", e.Message}});
             }
+        }
+
+        [HttpGet("task_status")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<Dictionary<string, object>> GetTaskStatus([FromQuery] string id)
+        {
+            if (string.IsNullOrWhiteSpace(id))
+                return StatusCode(400, new Dictionary<string, object>() { { "message", "Task ID is required" } });
+
+            var task = DownloadTaskManager.GetTask(id);
+            if (task == null)
+                return StatusCode(404, new Dictionary<string, object>() { { "message", $"Task not found: {id}" } });
+
+            var response = new Dictionary<string, object>
+            {
+                { "id", task.Id },
+                { "status", task.Status.ToString() },
+                { "progress", task.Progress },
+                { "completedCount", task.CompletedCount },
+                { "videoCount", task.VideoCount },
+                { "isPlaylist", task.IsPlaylist },
+                { "error", task.ErrorMessage },
+                { "failedCount", task.FailedCount },
+                { "failedVideos", task.FailedVideos }
+            };
+
+            return Ok(response);
         }
 
         [HttpGet("validate_path")]

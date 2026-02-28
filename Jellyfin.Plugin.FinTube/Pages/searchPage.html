@@ -1,4 +1,4 @@
-<div data-role="page" class="page type-interior pluginConfigurationPage"
+<div data-role="page" class="page type-interior"
 	 data-require="emby-button,emby-select,emby-checkbox">
 	<div data-role="content">
 		<div class="content-primary">
@@ -320,6 +320,8 @@
 					});
 				}
 
+				var playlistPollInterval = null;
+
 				function downloadPlaylist(playlistUrl, audioOnly) {
 					var statusEl = document.getElementById('playlist-dl-status');
 					if (!fintubeConfig) {
@@ -343,7 +345,7 @@
 					statusEl.innerHTML =
 						'<div style="display:flex;align-items:center;gap:8px;">' +
 							'<span class="material-icons" style="color:#8ab4f8;animation:fintube-search-spin 1s linear infinite;">sync</span>' +
-							'<span style="color:#aaa;">Downloading entire playlist as ' + (audioOnly ? 'audio' : 'video') + '... This may take a while.</span>' +
+							'<span style="color:#aaa;">Starting playlist download...</span>' +
 						'</div>';
 
 					var payload = {
@@ -365,13 +367,17 @@
 						contentType: 'application/json'
 					})
 					.then(function(result) {
-						if (videoBtn) videoBtn.removeAttribute('disabled');
-						if (audioBtn) audioBtn.removeAttribute('disabled');
-						statusEl.innerHTML =
-							'<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;background:rgba(76,175,80,0.1);border:1px solid #4caf50;">' +
-								'<span class="material-icons" style="color:#4caf50;">check_circle</span>' +
-								'<span style="color:#4caf50;">Playlist download completed!</span>' +
-							'</div>';
+						if (result && result.async && result.taskId) {
+							startPolling(result.taskId, statusEl, videoBtn, audioBtn);
+						} else {
+							if (videoBtn) videoBtn.removeAttribute('disabled');
+							if (audioBtn) audioBtn.removeAttribute('disabled');
+							statusEl.innerHTML =
+								'<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;background:rgba(76,175,80,0.1);border:1px solid #4caf50;">' +
+									'<span class="material-icons" style="color:#4caf50;">check_circle</span>' +
+									'<span style="color:#4caf50;">Download completed!</span>' +
+								'</div>';
+						}
 					})
 					.catch(function(err) {
 						if (videoBtn) videoBtn.removeAttribute('disabled');
@@ -386,6 +392,93 @@
 								'<span style="color:#f44336;">' + errorMsg + '</span>' +
 							'</div>';
 					});
+				}
+
+				function startPolling(taskId, statusEl, videoBtn, audioBtn) {
+					if (playlistPollInterval) clearInterval(playlistPollInterval);
+
+					playlistPollInterval = setInterval(function() {
+						var url = fintubeUrl('fintube/task_status', { id: taskId });
+						ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' })
+						.then(function(task) {
+							if (task.status === 'Completed') {
+								clearInterval(playlistPollInterval);
+								playlistPollInterval = null;
+								if (videoBtn) videoBtn.removeAttribute('disabled');
+								if (audioBtn) audioBtn.removeAttribute('disabled');
+								var doneMsg = 'Playlist download completed!';
+								if (task.videoCount > 0) doneMsg = task.completedCount + ' of ' + task.videoCount + ' videos downloaded successfully!';
+								statusEl.innerHTML =
+									'<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;background:rgba(76,175,80,0.1);border:1px solid #4caf50;">' +
+										'<span class="material-icons" style="color:#4caf50;">check_circle</span>' +
+										'<span style="color:#4caf50;">' + doneMsg + '</span>' +
+									'</div>';
+							} else if (task.status === 'CompletedWithErrors') {
+								clearInterval(playlistPollInterval);
+								playlistPollInterval = null;
+								if (videoBtn) videoBtn.removeAttribute('disabled');
+								if (audioBtn) audioBtn.removeAttribute('disabled');
+								var successCount = task.completedCount || 0;
+								var warnMsg = successCount + ' of ' + task.videoCount + ' videos downloaded. ' + task.failedCount + ' failed:';
+								var failList = '';
+								if (task.failedVideos && task.failedVideos.length > 0) {
+									failList = '<ul style="margin:6px 0 0 20px;padding:0;font-size:.85em;color:#ccc;">';
+									for (var i = 0; i < task.failedVideos.length; i++) {
+										failList += '<li style="margin-bottom:2px;">' + task.failedVideos[i].replace(/</g, '&lt;') + '</li>';
+									}
+									failList += '</ul>';
+								}
+								statusEl.innerHTML =
+									'<div style="padding:10px;border-radius:6px;background:rgba(255,152,0,0.1);border:1px solid #ff9800;">' +
+										'<div style="display:flex;align-items:center;gap:8px;">' +
+											'<span class="material-icons" style="color:#ff9800;">warning</span>' +
+											'<span style="color:#ff9800;">' + warnMsg + '</span>' +
+										'</div>' +
+										failList +
+									'</div>';
+							} else if (task.status === 'Failed') {
+								clearInterval(playlistPollInterval);
+								playlistPollInterval = null;
+								if (videoBtn) videoBtn.removeAttribute('disabled');
+								if (audioBtn) audioBtn.removeAttribute('disabled');
+								var errDetail = task.error || 'Download failed';
+								var failListErr = '';
+								if (task.failedVideos && task.failedVideos.length > 0) {
+									failListErr = '<ul style="margin:6px 0 0 20px;padding:0;font-size:.85em;color:#ccc;">';
+									for (var j = 0; j < task.failedVideos.length; j++) {
+										failListErr += '<li style="margin-bottom:2px;">' + task.failedVideos[j].replace(/</g, '&lt;') + '</li>';
+									}
+									failListErr += '</ul>';
+								}
+								statusEl.innerHTML =
+									'<div style="padding:10px;border-radius:6px;background:rgba(244,67,54,0.1);border:1px solid #f44336;">' +
+										'<div style="display:flex;align-items:center;gap:8px;">' +
+											'<span class="material-icons" style="color:#f44336;">error</span>' +
+											'<span style="color:#f44336;">' + errDetail + '</span>' +
+										'</div>' +
+										failListErr +
+									'</div>';
+							} else {
+								var progressText = 'Downloading playlist...';
+								if (task.videoCount > 0) {
+									progressText = 'Downloading video ' + (task.completedCount + 1) + ' of ' + task.videoCount + '...';
+								}
+								if (task.failedCount > 0) {
+									progressText += ' (' + task.failedCount + ' failed)';
+								}
+								statusEl.innerHTML =
+									'<div style="display:flex;align-items:center;gap:8px;">' +
+										'<span class="material-icons" style="color:#8ab4f8;animation:fintube-search-spin 1s linear infinite;">sync</span>' +
+										'<span style="color:#aaa;">' + progressText + '</span>' +
+									'</div>' +
+									(task.videoCount > 0 ?
+										'<div style="margin-top:6px;background:#333;border-radius:4px;height:6px;overflow:hidden;">' +
+											'<div style="background:#8ab4f8;height:100%;width:' + Math.round((task.completedCount / task.videoCount) * 100) + '%;transition:width .3s;"></div>' +
+										'</div>' : '');
+							}
+						})
+						.catch(function() {});
+					}, 3000);
 				}
 
 				(function() {
