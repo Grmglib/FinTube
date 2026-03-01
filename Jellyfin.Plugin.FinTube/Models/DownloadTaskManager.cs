@@ -18,8 +18,8 @@ public static class DownloadTaskManager
     private static readonly Regex VideoOfRegex = new(@"\[download\]\s+Downloading video (\d+) of (\d+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex ErrorRegex = new(@"^ERROR:\s*(.+)$", RegexOptions.Compiled);
 
-    private static readonly Regex AgeRestrictionRegex = new(
-        @"(Sign in to confirm your age|age-restricted|This video may be inappropriate for some users)",
+    private static readonly Regex AuthRequiredRegex = new(
+        @"(Sign in to confirm your age|age-restricted|This video may be inappropriate for some users|Sign in to confirm you.re not a bot|Use --cookies-from-browser or --cookies)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public static string StartTask(string executable, string args, ILogger logger, bool isPlaylist,
@@ -49,13 +49,15 @@ public static class DownloadTaskManager
         if (!_tasks.TryGetValue(taskId, out var taskInfo))
             return;
 
+        var finalStatus = DownloadTaskStatus.Failed;
+
         try
         {
             var (exitCode, collectedStderr, collectedStdout) = await ExecuteYtdlp(executable, args, taskInfo);
 
-            if (exitCode != 0 && !taskInfo.IsPlaylist && retryArgs != null && IsAgeRestricted(collectedStderr))
+            if (exitCode != 0 && !taskInfo.IsPlaylist && retryArgs != null && IsAuthRequired(collectedStderr))
             {
-                logger.LogWarning("Task {taskId}: age-restriction detected, retrying with cookies...", taskId);
+                logger.LogWarning("Task {taskId}: YouTube authentication required, retrying with cookies...", taskId);
                 taskInfo.FailedCount = 0;
                 taskInfo.FailedVideos.Clear();
                 taskInfo.Progress = "";
@@ -65,12 +67,13 @@ public static class DownloadTaskManager
 
             if (taskInfo.FailedCount > 0 && taskInfo.CompletedCount > 0)
             {
-                taskInfo.Status = DownloadTaskStatus.CompletedWithErrors;
+                finalStatus = DownloadTaskStatus.CompletedWithErrors;
                 taskInfo.ErrorMessage = $"{taskInfo.FailedCount} video(s) failed";
                 logger.LogWarning("Task {taskId} completed with {failed} errors out of {total} videos", taskId, taskInfo.FailedCount, taskInfo.VideoCount);
             }
             else if (exitCode != 0 && taskInfo.CompletedCount == 0)
             {
+                finalStatus = DownloadTaskStatus.Failed;
                 taskInfo.Status = DownloadTaskStatus.Failed;
                 taskInfo.ErrorMessage = taskInfo.FailedVideos.Count > 0
                     ? string.Join("; ", taskInfo.FailedVideos)
@@ -79,7 +82,7 @@ public static class DownloadTaskManager
             }
             else
             {
-                taskInfo.Status = DownloadTaskStatus.Completed;
+                finalStatus = DownloadTaskStatus.Completed;
                 if (taskInfo.IsPlaylist && taskInfo.VideoCount > 0)
                     taskInfo.CompletedCount = taskInfo.VideoCount - taskInfo.FailedCount;
                 else if (!taskInfo.IsPlaylist)
@@ -87,50 +90,51 @@ public static class DownloadTaskManager
                     taskInfo.VideoCount = 1;
                     taskInfo.CompletedCount = 1;
                 }
-                logger.LogInformation("Task {taskId} completed successfully", taskId);
+                logger.LogInformation("Task {taskId} download completed successfully", taskId);
             }
 
             var outputPath = ParseOutputFilePath(collectedStdout);
             if (!string.IsNullOrWhiteSpace(outputPath))
                 taskInfo.OutputFilePath = outputPath;
+
+            if ((finalStatus == DownloadTaskStatus.Completed || finalStatus == DownloadTaskStatus.CompletedWithErrors)
+                && musicMetadata != null && !string.IsNullOrWhiteSpace(taskInfo.OutputFilePath))
+            {
+                try
+                {
+                    taskInfo.Progress = "Post-processing metadata...";
+                    logger.LogInformation("Task {taskId}: starting post-processing on '{path}'", taskId, taskInfo.OutputFilePath);
+                    await MusicPostProcessor.ProcessAsync(taskInfo.OutputFilePath, musicMetadata, logger);
+                    taskInfo.PostProcessed = true;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Task {taskId}: post-processing failed", taskId);
+                }
+            }
+
+            if (finalStatus == DownloadTaskStatus.Completed || finalStatus == DownloadTaskStatus.CompletedWithErrors)
+            {
+                try
+                {
+                    onCompleted?.Invoke();
+                    taskInfo.LibraryScanQueued = onCompleted != null;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Task {taskId}: onCompleted callback failed", taskId);
+                }
+            }
         }
         catch (Exception ex)
         {
-            taskInfo.Status = DownloadTaskStatus.Failed;
+            finalStatus = DownloadTaskStatus.Failed;
             taskInfo.ErrorMessage = ex.Message;
             logger.LogError(ex, "Task {taskId} failed with exception", taskId);
         }
 
-        if ((taskInfo.Status == DownloadTaskStatus.Completed || taskInfo.Status == DownloadTaskStatus.CompletedWithErrors)
-            && musicMetadata != null && !string.IsNullOrWhiteSpace(taskInfo.OutputFilePath))
-        {
-            try
-            {
-                taskInfo.Progress = "Post-processing metadata...";
-                logger.LogInformation("Task {taskId}: starting post-processing on '{path}'", taskId, taskInfo.OutputFilePath);
-                await MusicPostProcessor.ProcessAsync(taskInfo.OutputFilePath, musicMetadata, logger);
-                taskInfo.PostProcessed = true;
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Task {taskId}: post-processing failed", taskId);
-            }
-        }
-
+        taskInfo.Status = finalStatus;
         taskInfo.CompletedAt = DateTime.UtcNow;
-
-        if (taskInfo.Status == DownloadTaskStatus.Completed || taskInfo.Status == DownloadTaskStatus.CompletedWithErrors)
-        {
-            try
-            {
-                onCompleted?.Invoke();
-                taskInfo.LibraryScanQueued = onCompleted != null;
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Task {taskId}: onCompleted callback failed", taskId);
-            }
-        }
     }
 
     private static string ParseOutputFilePath(string stdout)
@@ -207,10 +211,10 @@ public static class DownloadTaskManager
         return (process.ExitCode, string.Join("\n", stderrLines), stdout);
     }
 
-    private static bool IsAgeRestricted(string stderr)
+    private static bool IsAuthRequired(string stderr)
     {
         if (string.IsNullOrWhiteSpace(stderr)) return false;
-        return AgeRestrictionRegex.IsMatch(stderr);
+        return AuthRequiredRegex.IsMatch(stderr);
     }
 
     public static DownloadTaskInfo? GetTask(string taskId)

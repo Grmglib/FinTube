@@ -157,12 +157,14 @@ public class FinTubeActivityController : ControllerBase
             return (process.ExitCode, stdoutTask.Result, stderrTask.Result);
         }
 
-        private static bool IsAgeRestrictionError(string stderr)
+        private static bool IsAuthRequiredError(string stderr)
         {
             if (string.IsNullOrWhiteSpace(stderr)) return false;
             return stderr.Contains("Sign in to confirm your age", StringComparison.OrdinalIgnoreCase)
                 || stderr.Contains("age-restricted", StringComparison.OrdinalIgnoreCase)
-                || stderr.Contains("This video may be inappropriate for some users", StringComparison.OrdinalIgnoreCase);
+                || stderr.Contains("This video may be inappropriate for some users", StringComparison.OrdinalIgnoreCase)
+                || stderr.Contains("Sign in to confirm you", StringComparison.OrdinalIgnoreCase)
+                || stderr.Contains("--cookies-from-browser", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string BuildYtdlpArgs(FinTubeData data, string targetPath, string cookiesBrowser = "")
@@ -433,18 +435,18 @@ public class FinTubeActivityController : ControllerBase
 
                 var (exitCode, output, errorOutput) = await RunYtdlp(config.exec_YTDL, args);
 
-                if (exitCode != 0 && string.IsNullOrWhiteSpace(output) && isUrl && IsAgeRestrictionError(errorOutput))
+                if (exitCode != 0 && string.IsNullOrWhiteSpace(output) && isUrl && IsAuthRequiredError(errorOutput))
                 {
                     var browser = config.cookiesBrowser;
                     if (!string.IsNullOrWhiteSpace(browser))
                     {
-                        _logger.LogWarning("Age-restriction detected in search, retrying with cookies from {browser}...", browser);
+                        _logger.LogWarning("YouTube authentication required for search, retrying with cookies from {browser}...", browser);
                         var retryArgs = $"--cookies-from-browser {browser} " + args;
                         (exitCode, output, errorOutput) = await RunYtdlp(config.exec_YTDL, retryArgs);
                     }
                     else
                     {
-                        return StatusCode(500, new Dictionary<string, object>() {{"message", "This video is age-restricted. Go to FinTube Settings and select your browser in 'Cookies Browser' to enable authentication. Make sure you are logged into YouTube in that browser."}});
+                        return StatusCode(500, new Dictionary<string, object>() {{"message", "YouTube requires authentication (age-restricted or bot detection). Go to FinTube Settings and select your browser in 'Cookies Browser' to enable authentication. Make sure you are logged into YouTube in that browser."}});
                     }
                 }
 
