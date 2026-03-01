@@ -23,6 +23,7 @@ public class PluginConfiguration : BasePluginConfiguration
         cookiesBrowser = "";
         enableMusicOrganizer = true;
         enableAutoLibraryScan = true;
+        enableCoverArtReplacement = true;
     }
 
     /// <summary>
@@ -67,4 +68,10 @@ public class PluginConfiguration : BasePluginConfiguration
     /// When enabled, automatically trigger a Jellyfin library scan after each download completes
     /// </summary>
     public bool enableAutoLibraryScan { get; set; }
+
+    /// <summary>
+    /// When enabled, replaces the YouTube thumbnail with the album cover from Cover Art Archive
+    /// and rewrites metadata tags using TagLib# after download completes
+    /// </summary>
+    public bool enableCoverArtReplacement { get; set; }
 }

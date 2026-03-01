@@ -623,11 +623,16 @@
 				var url = fintubeUrl('fintube/task_status', { id: taskId });
 				ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' })
 				.then(function(task) {
-					var scanNote = task.libraryScanQueued
-						? '<div style="margin-top:6px;font-size:.8em;color:#8ab4f8;">' +
-							'<span class="material-icons" style="font-size:.9em;vertical-align:middle;">refresh</span> Library scan triggered' +
-						  '</div>'
-						: '';
+				var postNote = task.postProcessed
+					? '<div style="margin-top:6px;font-size:.8em;color:#ce93d8;">' +
+						'<span class="material-icons" style="font-size:.9em;vertical-align:middle;">album</span> Cover art &amp; metadata updated' +
+					  '</div>'
+					: '';
+				var scanNote = task.libraryScanQueued
+					? '<div style="margin-top:6px;font-size:.8em;color:#8ab4f8;">' +
+						'<span class="material-icons" style="font-size:.9em;vertical-align:middle;">refresh</span> Library scan triggered' +
+					  '</div>'
+					: '';
 
 					if (task.status === 'Completed') {
 						clearInterval(pollInterval);
@@ -640,6 +645,7 @@
 									'<span class="material-icons" style="color:#4caf50;">check_circle</span>' +
 									'<span style="color:#4caf50;">' + doneMsg + '</span>' +
 								'</div>' +
+								postNote +
 								scanNote +
 							'</div>';
 					} else if (task.status === 'CompletedWithErrors') {
@@ -662,6 +668,7 @@
 									'<span style="color:#ff9800;">' + warnMsg + '</span>' +
 								'</div>' +
 								failList +
+								postNote +
 								scanNote +
 							'</div>';
 					} else if (task.status === 'Failed') {
@@ -685,7 +692,14 @@
 								failListErr +
 							'</div>';
 					} else {
-						if (task.videoCount > 1) {
+						var isPostProcessing = task.progress && task.progress.indexOf('Post-processing') >= 0;
+						if (isPostProcessing) {
+							statusEl.innerHTML =
+								'<div style="display:flex;align-items:center;gap:8px;">' +
+									'<span class="material-icons" style="color:#ce93d8;animation:fintube-spin 1s linear infinite;">sync</span>' +
+									'<span style="color:#ce93d8;">Updating cover art &amp; metadata...</span>' +
+								'</div>';
+						} else if (task.videoCount > 1) {
 							var progressText = 'Downloading video ' + (task.completedCount + 1) + ' of ' + task.videoCount + '...';
 							if (task.failedCount > 0) progressText += ' (' + task.failedCount + ' failed)';
 							var progressWidth = Math.round((task.completedCount / task.videoCount) * 100);

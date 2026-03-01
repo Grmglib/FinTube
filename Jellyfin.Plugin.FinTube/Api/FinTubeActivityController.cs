@@ -97,11 +97,30 @@ public class FinTubeActivityController : ControllerBase
                     };
                 }
 
+                Models.MusicMetadata? musicMetadata = null;
+                if (data.audioonly && !string.IsNullOrWhiteSpace(data.metadataReleaseMbid)
+                    && config.enableCoverArtReplacement)
+                {
+                    musicMetadata = new Models.MusicMetadata
+                    {
+                        Title = data.metadataTitle,
+                        Artist = data.metadataArtist,
+                        Album = data.metadataAlbum,
+                        Year = data.metadataYear,
+                        TrackNumber = data.metadataTrackNumber,
+                        Genre = data.metadataGenre,
+                        ArtistMbid = data.metadataArtistMbid,
+                        ReleaseMbid = data.metadataReleaseMbid,
+                        RecordingMbid = data.metadataRecordingMbid
+                    };
+                }
+
                 var taskId = DownloadTaskManager.StartTask(
                     config.exec_YTDL, args, _logger,
                     isPlaylist: data.isPlaylist,
                     retryArgs: retryArgs,
-                    onCompleted: onCompleted);
+                    onCompleted: onCompleted,
+                    musicMetadata: musicMetadata);
 
                 return Ok(new Dictionary<string, object>
                 {
@@ -271,6 +290,7 @@ public class FinTubeActivityController : ControllerBase
             }
 
             args.Add($"-o \"{outputTemplate}\"");
+            args.Add("--print after_move:filepath");
             args.Add("--");
             args.Add(data.ytid);
 
@@ -526,7 +546,8 @@ public class FinTubeActivityController : ControllerBase
                 { "error", task.ErrorMessage },
                 { "failedCount", task.FailedCount },
                 { "failedVideos", task.FailedVideos },
-                { "libraryScanQueued", task.LibraryScanQueued }
+                { "libraryScanQueued", task.LibraryScanQueued },
+                { "postProcessed", task.PostProcessed }
             };
 
             return Ok(response);

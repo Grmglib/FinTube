@@ -51,4 +51,10 @@ public class DownloadTaskInfo
 
     [JsonPropertyName("libraryScanQueued")]
     public bool LibraryScanQueued { get; set; }
+
+    [JsonPropertyName("outputFilePath")]
+    public string OutputFilePath { get; set; } = "";
+
+    [JsonPropertyName("postProcessed")]
+    public bool PostProcessed { get; set; }
 }

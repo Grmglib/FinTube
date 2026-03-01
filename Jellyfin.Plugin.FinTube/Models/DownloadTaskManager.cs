@@ -23,7 +23,7 @@ public static class DownloadTaskManager
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public static string StartTask(string executable, string args, ILogger logger, bool isPlaylist,
-        string? retryArgs = null, Action? onCompleted = null)
+        string? retryArgs = null, Action? onCompleted = null, MusicMetadata? musicMetadata = null)
     {
         CleanupOldTasks();
 
@@ -38,20 +38,20 @@ public static class DownloadTaskManager
 
         _tasks[taskId] = taskInfo;
 
-        _ = Task.Run(() => RunDownload(taskId, executable, args, logger, retryArgs, onCompleted));
+        _ = Task.Run(() => RunDownload(taskId, executable, args, logger, retryArgs, onCompleted, musicMetadata));
 
         return taskId;
     }
 
     private static async Task RunDownload(string taskId, string executable, string args, ILogger logger,
-        string? retryArgs, Action? onCompleted)
+        string? retryArgs, Action? onCompleted, MusicMetadata? musicMetadata)
     {
         if (!_tasks.TryGetValue(taskId, out var taskInfo))
             return;
 
         try
         {
-            var (exitCode, collectedStderr) = await ExecuteYtdlp(executable, args, taskInfo);
+            var (exitCode, collectedStderr, collectedStdout) = await ExecuteYtdlp(executable, args, taskInfo);
 
             if (exitCode != 0 && !taskInfo.IsPlaylist && retryArgs != null && IsAgeRestricted(collectedStderr))
             {
@@ -60,7 +60,7 @@ public static class DownloadTaskManager
                 taskInfo.FailedVideos.Clear();
                 taskInfo.Progress = "";
 
-                (exitCode, collectedStderr) = await ExecuteYtdlp(executable, retryArgs, taskInfo);
+                (exitCode, collectedStderr, collectedStdout) = await ExecuteYtdlp(executable, retryArgs, taskInfo);
             }
 
             if (taskInfo.FailedCount > 0 && taskInfo.CompletedCount > 0)
@@ -89,12 +89,32 @@ public static class DownloadTaskManager
                 }
                 logger.LogInformation("Task {taskId} completed successfully", taskId);
             }
+
+            var outputPath = ParseOutputFilePath(collectedStdout);
+            if (!string.IsNullOrWhiteSpace(outputPath))
+                taskInfo.OutputFilePath = outputPath;
         }
         catch (Exception ex)
         {
             taskInfo.Status = DownloadTaskStatus.Failed;
             taskInfo.ErrorMessage = ex.Message;
             logger.LogError(ex, "Task {taskId} failed with exception", taskId);
+        }
+
+        if ((taskInfo.Status == DownloadTaskStatus.Completed || taskInfo.Status == DownloadTaskStatus.CompletedWithErrors)
+            && musicMetadata != null && !string.IsNullOrWhiteSpace(taskInfo.OutputFilePath))
+        {
+            try
+            {
+                taskInfo.Progress = "Post-processing metadata...";
+                logger.LogInformation("Task {taskId}: starting post-processing on '{path}'", taskId, taskInfo.OutputFilePath);
+                await MusicPostProcessor.ProcessAsync(taskInfo.OutputFilePath, musicMetadata, logger);
+                taskInfo.PostProcessed = true;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Task {taskId}: post-processing failed", taskId);
+            }
         }
 
         taskInfo.CompletedAt = DateTime.UtcNow;
@@ -113,7 +133,20 @@ public static class DownloadTaskManager
         }
     }
 
-    private static async Task<(int exitCode, string collectedStderr)> ExecuteYtdlp(
+    private static string ParseOutputFilePath(string stdout)
+    {
+        if (string.IsNullOrWhiteSpace(stdout)) return "";
+        var lines = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        for (int i = lines.Length - 1; i >= 0; i--)
+        {
+            var line = lines[i].Trim();
+            if (!string.IsNullOrWhiteSpace(line))
+                return line;
+        }
+        return "";
+    }
+
+    private static async Task<(int exitCode, string collectedStderr, string collectedStdout)> ExecuteYtdlp(
         string executable, string args, DownloadTaskInfo taskInfo)
     {
         var stderrLines = new List<string>();
@@ -171,7 +204,7 @@ public static class DownloadTaskManager
         var stdout = await process.StandardOutput.ReadToEndAsync();
         await process.WaitForExitAsync();
 
-        return (process.ExitCode, string.Join("\n", stderrLines));
+        return (process.ExitCode, string.Join("\n", stderrLines), stdout);
     }
 
     private static bool IsAgeRestricted(string stderr)

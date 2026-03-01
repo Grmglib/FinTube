@@ -95,6 +95,13 @@
                     <h3 style="margin-top:24px;">Post-Download</h3>
                     <div class="checkboxContainer checkboxContainer-withDescription">
                         <label class="emby-checkbox-label">
+                            <input id="enableCoverArtReplacement" name="enableCoverArtReplacement" type="checkbox" is="emby-checkbox" />
+                            <span class="checkboxLabel">Replace YouTube thumbnail with album cover art</span>
+                        </label>
+                        <div class="fieldDescription">When enabled and a MusicBrainz match is selected, the YouTube thumbnail will be replaced with the actual album cover from Cover Art Archive, and metadata tags will be rewritten with TagLib# for maximum compatibility.</div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
                             <input id="enableAutoLibraryScan" name="enableAutoLibraryScan" type="checkbox" is="emby-checkbox" />
                             <span class="checkboxLabel">Automatically scan library after download</span>
                         </label>
@@ -291,6 +298,7 @@
                         document.querySelector('#cfgCustomAudioBitrate').value = config.customAudioBitrate || '192';
                         document.querySelector('#cookiesBrowser').value = config.cookiesBrowser || '';
                         document.querySelector('#enableMusicOrganizer').checked = config.enableMusicOrganizer !== false;
+                        document.querySelector('#enableCoverArtReplacement').checked = config.enableCoverArtReplacement !== false;
                         document.querySelector('#enableAutoLibraryScan').checked = config.enableAutoLibraryScan !== false;
                         toggleConfigCustomOpts();
                         toggleConfigBitrate();
@@ -327,6 +335,7 @@
                     config.customAudioBitrate = document.querySelector('#cfgCustomAudioBitrate').value;
                     config.cookiesBrowser = document.querySelector('#cookiesBrowser').value;
                     config.enableMusicOrganizer = document.querySelector('#enableMusicOrganizer').checked;
+                    config.enableCoverArtReplacement = document.querySelector('#enableCoverArtReplacement').checked;
                     config.enableAutoLibraryScan = document.querySelector('#enableAutoLibraryScan').checked;
                     ApiClient.updatePluginConfiguration(TubeFinConfig.pluginUniqueId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
