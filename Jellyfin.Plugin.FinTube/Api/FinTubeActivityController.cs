@@ -8,12 +8,9 @@ using System.Net.Http.Headers;
 using System.Net.Mime;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Jellyfin.Data.Entities;
 using Jellyfin.Plugin.FinTube.Configuration;
 using Jellyfin.Plugin.FinTube.Models;
-using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.IO;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -28,27 +25,14 @@ namespace Jellyfin.Plugin.FinTube.Api;
 public class FinTubeActivityController : ControllerBase
 {
         private readonly ILogger<FinTubeActivityController> _logger;
-        private readonly ILoggerFactory _loggerFactory;
-        private readonly IFileSystem _fileSystem;
-        private readonly IServerConfigurationManager _config;
-        private readonly IUserManager _userManager;
         private readonly ILibraryManager _libraryManager;
 
         public FinTubeActivityController(
-            ILoggerFactory loggerFactory,
-            IFileSystem fileSystem,
-            IServerConfigurationManager config,
-            IUserManager userManager,
+            ILogger<FinTubeActivityController> logger,
             ILibraryManager libraryManager)
         {
-            _loggerFactory = loggerFactory;
-            _logger = loggerFactory.CreateLogger<FinTubeActivityController>();
-            _fileSystem = fileSystem;
-            _config = config;
-            _userManager = userManager;
+            _logger = logger;
             _libraryManager = libraryManager;
-
-            _logger.LogInformation("FinTubeActivityController Loaded");
         }
 
         public class FinTubeData
@@ -59,6 +43,10 @@ public class FinTubeActivityController : ControllerBase
             public string targetfilename { get; set; } = "";
             public bool audioonly { get; set; } = false;
             public string preset { get; set; } = "balanced";
+            public string customMaxRes { get; set; } = "1080";
+            public string customVideoFormat { get; set; } = "mp4";
+            public string customAudioFormat { get; set; } = "mp3";
+            public string customAudioBitrate { get; set; } = "192";
             public bool isPlaylist { get; set; } = false;
             public string organizePath { get; set; } = "";
             public string metadataTitle { get; set; } = "";
@@ -68,7 +56,7 @@ public class FinTubeActivityController : ControllerBase
 
         [HttpPost("submit_dl")]
         [ProducesResponseType(StatusCodes.Status200OK)]
-        public async Task<ActionResult<Dictionary<string, object>>> FinTubeDownload([FromBody] FinTubeData data)
+        public ActionResult<Dictionary<string, object>> FinTubeDownload([FromBody] FinTubeData data)
         {
             try
             {
@@ -85,50 +73,36 @@ public class FinTubeActivityController : ControllerBase
                     throw new Exception("Directory could not be created");
 
                 var args = BuildYtdlpArgs(data, targetPath);
-
                 _logger.LogInformation("Exec: {exec} {args}", config.exec_YTDL, args);
 
-                if (data.isPlaylist)
+                string? retryArgs = null;
+                if (!string.IsNullOrWhiteSpace(config.cookiesBrowser))
+                    retryArgs = BuildYtdlpArgs(data, targetPath, cookiesBrowser: config.cookiesBrowser);
+
+                Action? onCompleted = null;
+                if (config.enableAutoLibraryScan)
                 {
-                    var taskId = DownloadTaskManager.StartTask(config.exec_YTDL, args, _logger, isPlaylist: true);
-                    return Ok(new Dictionary<string, object>
+                    var libraryManager = _libraryManager;
+                    var logger = _logger;
+                    onCompleted = () =>
                     {
-                        { "taskId", taskId },
-                        { "async", true },
-                        { "message", "Playlist download started" }
-                    });
+                        logger.LogInformation("Triggering library scan after download...");
+                        libraryManager.ValidateMediaLibrary(new Progress<double>(), System.Threading.CancellationToken.None);
+                    };
                 }
 
-                var (exitCode, stdout, stderr) = await RunYtdlp(config.exec_YTDL, args);
+                var taskId = DownloadTaskManager.StartTask(
+                    config.exec_YTDL, args, _logger,
+                    isPlaylist: data.isPlaylist,
+                    retryArgs: retryArgs,
+                    onCompleted: onCompleted);
 
-                if (exitCode != 0 && IsAgeRestrictionError(stderr))
+                return Ok(new Dictionary<string, object>
                 {
-                    var browser = config.cookiesBrowser;
-                    if (!string.IsNullOrWhiteSpace(browser))
-                    {
-                        _logger.LogWarning("Age-restriction detected, retrying with cookies from {browser}...", browser);
-                        var retryArgs = BuildYtdlpArgs(data, targetPath, cookiesBrowser: browser);
-                        _logger.LogInformation("Retry exec: {exec} {args}", config.exec_YTDL, retryArgs);
-                        (exitCode, stdout, stderr) = await RunYtdlp(config.exec_YTDL, retryArgs);
-                    }
-                    else
-                    {
-                        throw new Exception("This video is age-restricted. Go to FinTube Settings and select your browser in 'Cookies Browser' to enable authentication. Make sure you are logged into YouTube in that browser.");
-                    }
-                }
-
-                var status = $"Preset: {data.preset}<br>";
-
-                if (exitCode != 0)
-                {
-                    _logger.LogError("yt-dlp failed (exit {code}): {stderr}", exitCode, stderr);
-                    throw new Exception($"yt-dlp exited with code {exitCode}: {stderr}");
-                }
-
-                status += "<font color='green'>File Saved!</font>";
-
-                var response = new Dictionary<string, object> { { "message", status } };
-                return Ok(response);
+                    { "taskId", taskId },
+                    { "async", true },
+                    { "message", data.isPlaylist ? "Playlist download started" : "Download started" }
+                });
             }
             catch (Exception e)
             {
@@ -189,6 +163,12 @@ public class FinTubeActivityController : ControllerBase
                         args.Add("--audio-format mp3");
                         args.Add("--audio-quality 9");
                         break;
+                    case "custom":
+                        var audioFmt = data.customAudioFormat ?? "mp3";
+                        args.Add($"--audio-format {audioFmt}");
+                        if (!string.Equals(audioFmt, "flac", StringComparison.OrdinalIgnoreCase))
+                            args.Add($"--audio-quality {MapBitrateToQuality(data.customAudioBitrate)}");
+                        break;
                     default: // balanced
                         args.Add("--audio-format mp3");
                         args.Add("--audio-quality 5");
@@ -206,6 +186,15 @@ public class FinTubeActivityController : ControllerBase
                     case "small":
                         args.Add("-f \"bestvideo[height<=720]+bestaudio/best[height<=720]\"");
                         args.Add("--merge-output-format mp4");
+                        break;
+                    case "custom":
+                        var maxRes = data.customMaxRes ?? "1080";
+                        var videoFmt = data.customVideoFormat ?? "mp4";
+                        if (maxRes == "0")
+                            args.Add("-f \"bestvideo+bestaudio/best\"");
+                        else
+                            args.Add($"-f \"bestvideo[height<={maxRes}]+bestaudio/best[height<={maxRes}]\"");
+                        args.Add($"--merge-output-format {videoFmt}");
                         break;
                     default: // balanced
                         args.Add("-f \"bestvideo[height<=1080]+bestaudio/best[height<=1080]\"");
@@ -508,7 +497,8 @@ public class FinTubeActivityController : ControllerBase
                 { "isPlaylist", task.IsPlaylist },
                 { "error", task.ErrorMessage },
                 { "failedCount", task.FailedCount },
-                { "failedVideos", task.FailedVideos }
+                { "failedVideos", task.FailedVideos },
+                { "libraryScanQueued", task.LibraryScanQueued }
             };
 
             return Ok(response);
@@ -523,6 +513,19 @@ public class FinTubeActivityController : ControllerBase
             client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("FinTube", "1.1.0"));
             client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             return client;
+        }
+
+        private static int MapBitrateToQuality(string? bitrate)
+        {
+            return bitrate switch
+            {
+                "320" => 0,
+                "256" => 2,
+                "192" => 4,
+                "128" => 6,
+                "64" => 9,
+                _ => 4
+            };
         }
 
         private static string SanitizePath(string name)
@@ -693,11 +696,5 @@ public class FinTubeActivityController : ControllerBase
                 { "path", path ?? "" }
             };
             return Ok(response);
-        }
-
-        private static Process createProcess(String exe, String args)
-        {
-            ProcessStartInfo startInfo = new ProcessStartInfo() { FileName = exe, Arguments = args };
-            return new Process() { StartInfo = startInfo };
         }
 }

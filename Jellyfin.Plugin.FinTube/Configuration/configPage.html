@@ -13,26 +13,63 @@
                         </button>
                         <span id="exec_YTDL_status" style="margin-bottom:28px;font-size:1.2em;"></span>
                     </div>
-                    <div class="inputContainer" style="display:flex;align-items:flex-end;gap:8px;">
-                        <div style="flex:1;">
-                            <label class="inputLabel inputLabelUnfocused" for="exec_ID3">Exec ID3</label>
-                            <input id="exec_ID3" name="exec_ID3" type="text" is="emby-input" />
-                            <div class="fieldDescription">The executable filepath to id3v2</div>
-                        </div>
-                        <button type="button" is="emby-button" class="raised emby-button" onclick="openBrowseModal('exec_ID3')" style="margin-bottom:24px;white-space:nowrap;">
-                            <span class="material-icons" style="font-size:1.1em;vertical-align:middle;">folder_open</span> Browse
-                        </button>
-                        <span id="exec_ID3_status" style="margin-bottom:28px;font-size:1.2em;"></span>
-                    </div>
                     <h3 style="margin-top:24px;">Download Quality</h3>
                     <div class="selectContainer">
                         <label class="inputLabel inputLabelUnfocused" for="downloadPreset">Default Preset</label>
-                        <select id="downloadPreset" name="downloadPreset" is="emby-select" class="emby-select">
+                        <select id="downloadPreset" name="downloadPreset" is="emby-select" class="emby-select" onchange="toggleConfigCustomOpts()">
                             <option value="best">Best Quality (highest resolution/bitrate, MKV/MP3)</option>
                             <option value="balanced" selected>Balanced (up to 1080p, MP4/MP3)</option>
                             <option value="small">Small Size (up to 720p, MP4/MP3 low bitrate)</option>
+                            <option value="custom">Custom</option>
                         </select>
                         <div class="fieldDescription">Quality preset for downloads. All presets embed thumbnail and metadata automatically.</div>
+                    </div>
+                    <div id="configCustomOpts" style="display:none;margin-top:8px;padding:12px;border:1px solid #444;border-radius:6px;background:#222;">
+                        <div style="font-size:.85em;font-weight:bold;color:#8ab4f8;margin-bottom:6px;">Default Video Settings</div>
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                            <div class="selectContainer" style="flex:1;min-width:150px;">
+                                <label class="inputLabel inputLabelUnfocused" for="cfgCustomMaxRes">Max Resolution</label>
+                                <select id="cfgCustomMaxRes" is="emby-select" class="emby-select">
+                                    <option value="0">No limit</option>
+                                    <option value="2160">4K (2160p)</option>
+                                    <option value="1080" selected>1080p</option>
+                                    <option value="720">720p</option>
+                                    <option value="480">480p</option>
+                                    <option value="360">360p</option>
+                                </select>
+                            </div>
+                            <div class="selectContainer" style="flex:1;min-width:150px;">
+                                <label class="inputLabel inputLabelUnfocused" for="cfgCustomVideoFormat">Video Format</label>
+                                <select id="cfgCustomVideoFormat" is="emby-select" class="emby-select">
+                                    <option value="mp4" selected>MP4</option>
+                                    <option value="mkv">MKV</option>
+                                    <option value="webm">WebM</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div style="font-size:.85em;font-weight:bold;color:#8ab4f8;margin:10px 0 6px;">Default Audio Settings</div>
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                            <div class="selectContainer" style="flex:1;min-width:150px;">
+                                <label class="inputLabel inputLabelUnfocused" for="cfgCustomAudioFormat">Audio Format</label>
+                                <select id="cfgCustomAudioFormat" is="emby-select" class="emby-select" onchange="toggleConfigBitrate()">
+                                    <option value="mp3" selected>MP3</option>
+                                    <option value="flac">FLAC</option>
+                                    <option value="ogg">OGG</option>
+                                    <option value="opus">OPUS</option>
+                                </select>
+                            </div>
+                            <div class="selectContainer" style="flex:1;min-width:150px;">
+                                <label class="inputLabel inputLabelUnfocused" for="cfgCustomAudioBitrate">Audio Bitrate</label>
+                                <select id="cfgCustomAudioBitrate" is="emby-select" class="emby-select">
+                                    <option value="320">320 kbps</option>
+                                    <option value="256">256 kbps</option>
+                                    <option value="192" selected>192 kbps</option>
+                                    <option value="128">128 kbps</option>
+                                    <option value="64">64 kbps</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="fieldDescription" style="margin-top:6px;">These are the default custom values. They can be overridden per-download on the main page.</div>
                     </div>
                     <h3 style="margin-top:24px;">YouTube Authentication</h3>
                     <div class="selectContainer">
@@ -54,6 +91,14 @@
                             <span class="checkboxLabel">Enable Music Organizer (MusicBrainz)</span>
                         </label>
                         <div class="fieldDescription">When enabled, audio downloads will query MusicBrainz to identify the artist and album. You can review and edit the match before downloading. Files will be organized into Artist/Album/ subfolders automatically.</div>
+                    </div>
+                    <h3 style="margin-top:24px;">Post-Download</h3>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="enableAutoLibraryScan" name="enableAutoLibraryScan" type="checkbox" is="emby-checkbox" />
+                            <span class="checkboxLabel">Automatically scan library after download</span>
+                        </label>
+                        <div class="fieldDescription">When enabled, Jellyfin will automatically scan the library for new files after each download completes. Disable if you have a large library and prefer to scan manually.</div>
                     </div>
                     <h3 style="margin-top:24px;">Default Download Paths</h3>
                     <div class="inputContainer" style="display:flex;align-items:flex-end;gap:8px;">
@@ -237,32 +282,52 @@
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration(TubeFinConfig.pluginUniqueId).then(function (config) {
                         document.querySelector('#exec_YTDL').value = config.exec_YTDL;
-                        document.querySelector('#exec_ID3').value = config.exec_ID3;
                         document.querySelector('#defaultVideoPath').value = config.defaultVideoPath || '';
                         document.querySelector('#defaultAudioPath').value = config.defaultAudioPath || '';
                         document.querySelector('#downloadPreset').value = config.downloadPreset || 'balanced';
+                        document.querySelector('#cfgCustomMaxRes').value = config.customMaxResolution || '1080';
+                        document.querySelector('#cfgCustomVideoFormat').value = config.customVideoFormat || 'mp4';
+                        document.querySelector('#cfgCustomAudioFormat').value = config.customAudioFormat || 'mp3';
+                        document.querySelector('#cfgCustomAudioBitrate').value = config.customAudioBitrate || '192';
                         document.querySelector('#cookiesBrowser').value = config.cookiesBrowser || '';
                         document.querySelector('#enableMusicOrganizer').checked = config.enableMusicOrganizer !== false;
+                        document.querySelector('#enableAutoLibraryScan').checked = config.enableAutoLibraryScan !== false;
+                        toggleConfigCustomOpts();
+                        toggleConfigBitrate();
                         validateExecPath('exec_YTDL');
-                        validateExecPath('exec_ID3');
                         Dashboard.hideLoadingMsg();
                     });
                 });
 
+            function toggleConfigCustomOpts() {
+                var preset = document.querySelector('#downloadPreset').value;
+                document.getElementById('configCustomOpts').style.display = (preset === 'custom') ? 'block' : 'none';
+            }
+
+            function toggleConfigBitrate() {
+                var fmt = document.querySelector('#cfgCustomAudioFormat').value;
+                var el = document.querySelector('#cfgCustomAudioBitrate');
+                el.disabled = (fmt === 'flac');
+                el.title = (fmt === 'flac') ? 'FLAC is lossless — bitrate does not apply' : '';
+            }
+
             document.getElementById('exec_YTDL').addEventListener('change', function() { validateExecPath('exec_YTDL'); });
-            document.getElementById('exec_ID3').addEventListener('change', function() { validateExecPath('exec_ID3'); });
 
             document.querySelector('#FinTubeConfigForm')
                 .addEventListener('submit', function(e) {
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(TubeFinConfig.pluginUniqueId).then(function (config) {
                     config.exec_YTDL = document.querySelector('#exec_YTDL').value;
-                    config.exec_ID3 = document.querySelector('#exec_ID3').value;
                     config.defaultVideoPath = document.querySelector('#defaultVideoPath').value;
                     config.defaultAudioPath = document.querySelector('#defaultAudioPath').value;
                     config.downloadPreset = document.querySelector('#downloadPreset').value;
+                    config.customMaxResolution = document.querySelector('#cfgCustomMaxRes').value;
+                    config.customVideoFormat = document.querySelector('#cfgCustomVideoFormat').value;
+                    config.customAudioFormat = document.querySelector('#cfgCustomAudioFormat').value;
+                    config.customAudioBitrate = document.querySelector('#cfgCustomAudioBitrate').value;
                     config.cookiesBrowser = document.querySelector('#cookiesBrowser').value;
                     config.enableMusicOrganizer = document.querySelector('#enableMusicOrganizer').checked;
+                    config.enableAutoLibraryScan = document.querySelector('#enableAutoLibraryScan').checked;
                     ApiClient.updatePluginConfiguration(TubeFinConfig.pluginUniqueId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     });

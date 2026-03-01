@@ -13,23 +13,22 @@ public class PluginConfiguration : BasePluginConfiguration
     public PluginConfiguration()
     {
         exec_YTDL = "/usr/local/bin/yt-dlp";
-        exec_ID3 = "/usr/bin/id3v2";
         defaultVideoPath = "";
         defaultAudioPath = "";
         downloadPreset = "balanced";
+        customMaxResolution = "1080";
+        customVideoFormat = "mp4";
+        customAudioFormat = "mp3";
+        customAudioBitrate = "192";
         cookiesBrowser = "";
         enableMusicOrganizer = true;
+        enableAutoLibraryScan = true;
     }
 
     /// <summary>
     /// Executable for youtube-dl/youtube-dlp
     /// </summary>
     public string exec_YTDL { get; set; }
-
-    /// <summary>
-    /// Executable for ID3v2
-    /// </summary>
-    public string exec_ID3 { get; set; }
 
     /// <summary>
     /// Default download path for video files
@@ -42,9 +41,17 @@ public class PluginConfiguration : BasePluginConfiguration
     public string defaultAudioPath { get; set; }
 
     /// <summary>
-    /// Download quality preset: "best", "balanced", or "small"
+    /// Download quality preset: "best", "balanced", "small", or "custom"
     /// </summary>
     public string downloadPreset { get; set; }
+
+    public string customMaxResolution { get; set; }
+
+    public string customVideoFormat { get; set; }
+
+    public string customAudioFormat { get; set; }
+
+    public string customAudioBitrate { get; set; }
 
     /// <summary>
     /// Browser to read YouTube cookies from for age-restricted content (e.g. "firefox", "chrome", "edge")
@@ -55,4 +62,9 @@ public class PluginConfiguration : BasePluginConfiguration
     /// When enabled, audio downloads query MusicBrainz to identify artist/album and organize files into Artist/Album folders
     /// </summary>
     public bool enableMusicOrganizer { get; set; }
+
+    /// <summary>
+    /// When enabled, automatically trigger a Jellyfin library scan after each download completes
+    /// </summary>
+    public bool enableAutoLibraryScan { get; set; }
 }

@@ -48,4 +48,7 @@ public class DownloadTaskInfo
 
     [JsonPropertyName("failedVideos")]
     public List<string> FailedVideos { get; set; } = new();
+
+    [JsonPropertyName("libraryScanQueued")]
+    public bool LibraryScanQueued { get; set; }
 }

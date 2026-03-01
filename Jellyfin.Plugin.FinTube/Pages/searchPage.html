@@ -2,8 +2,15 @@
 	 data-require="emby-button,emby-select,emby-checkbox">
 	<div data-role="content">
 		<div class="content-primary">
-			<h2>FinTube Search</h2>
+			<h2>FinTube</h2>
 			<span>Search YouTube and download videos or audio directly to your library.</span>
+
+			<style>
+				@keyframes fintube-spin {
+					0% { transform: rotate(0deg); }
+					100% { transform: rotate(360deg); }
+				}
+			</style>
 
 			<details id="fintube-pathconfig" style="margin:16px 0;padding:12px 16px;border:1px solid #333;border-radius:8px;background:#1a1a1e;">
 				<summary style="cursor:pointer;font-weight:bold;font-size:1em;padding:4px 0;">
@@ -14,12 +21,64 @@
 				<div style="margin-top:12px;">
 					<div class="selectContainer">
 						<label class="inputLabel" for="fintube-preset">Quality Preset</label>
-						<select id="fintube-preset" class="emby-input">
+						<select id="fintube-preset" class="emby-input" onchange="updateCustomOptsVisibility()">
 							<option value="best">Best Quality (highest resolution/bitrate)</option>
 							<option value="balanced" selected>Balanced (up to 1080p)</option>
 							<option value="small">Small Size (up to 720p, low bitrate)</option>
+							<option value="custom">Custom</option>
 						</select>
 						<div class="fieldDescription">All presets embed thumbnail and metadata (artist, date) automatically</div>
+					</div>
+					<div id="fintube-custom-opts" style="display:none;margin-top:8px;padding:12px;border:1px solid #444;border-radius:6px;background:#222;">
+						<div id="custom-video-opts">
+							<div style="font-size:.85em;font-weight:bold;color:#8ab4f8;margin-bottom:6px;">Video Settings</div>
+							<div style="display:flex;gap:12px;flex-wrap:wrap;">
+								<div class="selectContainer" style="flex:1;min-width:150px;">
+									<label class="inputLabel" for="custom-max-res">Max Resolution</label>
+									<select id="custom-max-res" class="emby-input">
+										<option value="0">No limit</option>
+										<option value="2160">4K (2160p)</option>
+										<option value="1080" selected>1080p</option>
+										<option value="720">720p</option>
+										<option value="480">480p</option>
+										<option value="360">360p</option>
+									</select>
+								</div>
+								<div class="selectContainer" style="flex:1;min-width:150px;">
+									<label class="inputLabel" for="custom-video-format">Video Format</label>
+									<select id="custom-video-format" class="emby-input">
+										<option value="mp4" selected>MP4</option>
+										<option value="mkv">MKV</option>
+										<option value="webm">WebM</option>
+									</select>
+								</div>
+							</div>
+						</div>
+						<div id="custom-audio-opts" style="margin-top:10px;">
+							<div style="font-size:.85em;font-weight:bold;color:#8ab4f8;margin-bottom:6px;">Audio Settings</div>
+							<div style="display:flex;gap:12px;flex-wrap:wrap;">
+								<div class="selectContainer" style="flex:1;min-width:150px;">
+									<label class="inputLabel" for="custom-audio-format">Audio Format</label>
+									<select id="custom-audio-format" class="emby-input" onchange="updateBitrateState()">
+										<option value="mp3" selected>MP3</option>
+										<option value="flac">FLAC</option>
+										<option value="ogg">OGG</option>
+										<option value="opus">OPUS</option>
+									</select>
+								</div>
+								<div class="selectContainer" style="flex:1;min-width:150px;">
+									<label class="inputLabel" for="custom-audio-bitrate">Audio Bitrate</label>
+									<select id="custom-audio-bitrate" class="emby-input">
+										<option value="320">320 kbps</option>
+										<option value="256">256 kbps</option>
+										<option value="192" selected>192 kbps</option>
+										<option value="128">128 kbps</option>
+										<option value="64">64 kbps</option>
+									</select>
+								</div>
+							</div>
+							<div class="fieldDescription" style="margin-top:4px;">Audio settings apply to audio-only downloads. Video settings apply to video downloads.</div>
+						</div>
 					</div>
 					<div class="inputContainer">
 						<label class="inputLabel" for="fintube-videopath">Default Video Path</label>
@@ -38,6 +97,7 @@
 				</div>
 			</details>
 
+			<!-- Search Section -->
 			<div style="margin:20px 0;">
 				<div style="display:flex;gap:8px;align-items:flex-end;">
 					<div style="flex:1;">
@@ -59,13 +119,7 @@
 			</div>
 
 			<div id="fintube-search-loading" style="display:none;padding:30px;text-align:center;">
-				<style>
-					@keyframes fintube-search-spin {
-						0% { transform: rotate(0deg); }
-						100% { transform: rotate(360deg); }
-					}
-				</style>
-				<span class="material-icons" style="font-size:2.5em;color:#8ab4f8;animation:fintube-search-spin 1s linear infinite;">sync</span>
+				<span class="material-icons" style="font-size:2.5em;color:#8ab4f8;animation:fintube-spin 1s linear infinite;">sync</span>
 				<div style="margin-top:8px;color:#aaa;">Searching YouTube...</div>
 			</div>
 
@@ -76,619 +130,970 @@
 				</div>
 			</div>
 
-		<div id="fintube-search-results" style="margin-top:16px;"></div>
+			<div id="fintube-search-results" style="margin-top:16px;"></div>
 
-		<div id="mb-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,.7);justify-content:center;align-items:center;">
-			<div style="background:#1c1c1e;color:#fff;border-radius:10px;width:90%;max-width:500px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.5);">
-				<div style="padding:16px 20px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center;">
-					<div style="display:flex;align-items:center;gap:10px;">
-						<span class="material-icons" style="color:#7c4dff;font-size:1.4em;">library_music</span>
-						<h3 style="margin:0;font-size:1.1em;">MusicBrainz - Identify Track</h3>
+			<!-- Direct Download Section -->
+			<details id="fintube-directdl" style="margin:24px 0;padding:12px 16px;border:1px solid #333;border-radius:8px;background:#1a1a1e;">
+				<summary style="cursor:pointer;font-weight:bold;font-size:1em;padding:4px 0;">
+					<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">link</span>
+					Direct Download
+					<span style="font-weight:normal;font-size:.85em;color:#aaa;margin-left:8px;">Paste a YouTube URL or ID manually</span>
+				</summary>
+				<div style="margin-top:12px;">
+					<div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;">
+						<img id="dl-preview" src="https://img.youtube.com/vi/dQw4w9WgXcQ/mqdefault.jpg"
+							style="width:200px;height:112px;object-fit:cover;border-radius:6px;background:#000;flex-shrink:0;" />
+						<div style="flex:1;min-width:250px;">
+							<form id="FinTubeDLForm">
+								<div class="inputContainer">
+									<label class="inputLabel">YouTube Link or ID</label>
+									<input id="dl-ytid" class="emby-input" value="dQw4w9WgXcQ" />
+								</div>
+
+								<div class="selectContainer">
+									<label class="inputLabel" for="dl-targetlibrary">Target Library</label>
+									<select id="dl-targetlibrary" class="emby-input"></select>
+									<div class="fieldDescription">Base library destination path</div>
+								</div>
+
+								<div class="inputContainer">
+									<label class="inputLabel" for="dl-targetfolder">Target Folder</label>
+									<input id="dl-targetfolder" class="emby-input" />
+									<div class="fieldDescription">Relative path from target library (optional)</div>
+								</div>
+
+								<div class="inputContainer">
+									<label class="inputLabel" for="dl-targetfilename">Target Filename</label>
+									<input id="dl-targetfilename" class="emby-input" />
+									<div class="fieldDescription">Override the default filename (optional)</div>
+								</div>
+
+								<div class="checkboxContainer checkboxContainer-withDescription">
+									<label class="emby-checkbox-label">
+										<input id="dl-audioonly" type="checkbox" is="emby-checkbox" class="emby-checkbox">
+										<span class="checkboxLabel">Audio Only</span>
+									<span class="checkboxOutline"><span class="material-icons checkboxIcon checkboxIcon-checked check" aria-hidden="true"></span><span class="material-icons checkboxIcon checkboxIcon-unchecked" aria-hidden="true"></span></span></label>
+									<div class="fieldDescription">Download as MP3 with embedded metadata instead of video.</div>
+								</div>
+
+								<button id="dl-submit" is="emby-button" type="submit" class="raised button-submit block emby-button">
+									<span id="dl-submit-text">Download</span>
+								</button>
+
+								<div id="dl-loading" style="display:none;padding:20px;text-align:center;">
+									<span class="material-icons" style="font-size:2.5em;color:#8ab4f8;animation:fintube-spin 1s linear infinite;">sync</span>
+									<div style="margin-top:8px;color:#aaa;font-size:.95em;">Downloading... This may take a while.</div>
+								</div>
+
+								<div id="dl-result"></div>
+							</form>
+						</div>
 					</div>
-					<button type="button" onclick="mbCancel()" style="background:none;border:none;color:#aaa;font-size:1.5em;cursor:pointer;padding:0 4px;">&times;</button>
 				</div>
-				<div id="mb-modal-loading" style="display:none;padding:30px;text-align:center;">
-					<span class="material-icons" style="font-size:2em;color:#8ab4f8;animation:fintube-search-spin 1s linear infinite;">sync</span>
-					<div style="margin-top:8px;color:#aaa;">Searching MusicBrainz...</div>
-				</div>
-				<div id="mb-modal-content" style="padding:16px 20px;">
-					<div id="mb-modal-noresult" style="display:none;text-align:center;padding:16px;color:#aaa;">
-						<span class="material-icons" style="font-size:2em;color:#666;">search_off</span>
-						<div style="margin-top:8px;">No match found on MusicBrainz. The file will be saved without folder organization.</div>
+			</details>
+
+			<!-- MusicBrainz Modal (shared) -->
+			<div id="mb-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,.7);justify-content:center;align-items:center;">
+				<div style="background:#1c1c1e;color:#fff;border-radius:10px;width:90%;max-width:500px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.5);">
+					<div style="padding:16px 20px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center;">
+						<div style="display:flex;align-items:center;gap:10px;">
+							<span class="material-icons" style="color:#7c4dff;font-size:1.4em;">library_music</span>
+							<h3 style="margin:0;font-size:1.1em;">MusicBrainz - Identify Track</h3>
+						</div>
+						<button type="button" onclick="mbCancel()" style="background:none;border:none;color:#aaa;font-size:1.5em;cursor:pointer;padding:0 4px;">&times;</button>
 					</div>
-					<div id="mb-modal-results" style="display:none;">
-						<div style="margin-bottom:12px;font-size:.85em;color:#aaa;">Select a match or edit the fields below:</div>
-						<div id="mb-modal-list" style="max-height:150px;overflow-y:auto;margin-bottom:12px;"></div>
-						<div class="inputContainer" style="margin-bottom:8px;">
-							<label class="inputLabel" style="color:#ccc;">Track Title</label>
-							<input id="mb-title" class="emby-input" type="text" />
-							<div class="fieldDescription" style="color:#555;">File will be named with this title</div>
+					<div id="mb-loading" style="display:none;padding:30px;text-align:center;">
+						<span class="material-icons" style="font-size:2em;color:#8ab4f8;animation:fintube-spin 1s linear infinite;">sync</span>
+						<div style="margin-top:8px;color:#aaa;">Searching MusicBrainz...</div>
+					</div>
+					<div id="mb-content" style="padding:16px 20px;">
+						<div style="display:flex;gap:8px;margin-bottom:12px;">
+							<input id="mb-manual-query" class="emby-input" type="text" placeholder="Refine search (e.g. artist - track)" style="flex:1;" />
+							<button type="button" onclick="mbManualSearch()" style="background:#7c4dff;color:#fff;border:none;border-radius:4px;padding:6px 14px;cursor:pointer;white-space:nowrap;font-size:.85em;">
+								<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">search</span> Search
+							</button>
 						</div>
-						<div class="inputContainer" style="margin-bottom:8px;">
-							<label class="inputLabel" style="color:#ccc;">Artist</label>
-							<input id="mb-artist" class="emby-input" type="text" />
+						<div id="mb-noresult" style="display:none;text-align:center;padding:16px;color:#aaa;">
+							<span class="material-icons" style="font-size:2em;color:#666;">search_off</span>
+							<div style="margin-top:8px;">No match found on MusicBrainz. The file will be saved without folder organization.</div>
 						</div>
-						<div class="inputContainer" style="margin-bottom:8px;">
-							<label class="inputLabel" style="color:#ccc;">Album</label>
-							<input id="mb-album" class="emby-input" type="text" />
-						</div>
-						<div style="font-size:.8em;color:#666;margin-top:4px;">
-							Path: <span id="mb-preview-path" style="color:#8ab4f8;"></span>
+						<div id="mb-results" style="display:none;">
+							<div style="margin-bottom:8px;font-size:.85em;color:#aaa;">Select a match or edit the fields below:</div>
+							<div id="mb-list" style="max-height:200px;overflow-y:auto;margin-bottom:12px;"></div>
+							<div class="inputContainer" style="margin-bottom:8px;">
+								<label class="inputLabel" style="color:#ccc;">Track Title</label>
+								<input id="mb-title" class="emby-input" type="text" />
+								<div class="fieldDescription" style="color:#555;">File will be named with this title</div>
+							</div>
+							<div class="inputContainer" style="margin-bottom:8px;">
+								<label class="inputLabel" style="color:#ccc;">Artist</label>
+								<input id="mb-artist" class="emby-input" type="text" />
+							</div>
+							<div style="display:flex;gap:8px;">
+								<div class="inputContainer" style="margin-bottom:8px;flex:1;">
+									<label class="inputLabel" style="color:#ccc;">Album</label>
+									<input id="mb-album" class="emby-input" type="text" />
+								</div>
+								<div class="inputContainer" style="margin-bottom:8px;width:80px;">
+									<label class="inputLabel" style="color:#ccc;">Year</label>
+									<input id="mb-year" class="emby-input" type="text" maxlength="4" placeholder="YYYY" />
+								</div>
+							</div>
+							<div style="font-size:.8em;color:#666;margin-top:4px;">
+								Path: <span id="mb-preview-path" style="color:#8ab4f8;"></span>
+							</div>
 						</div>
 					</div>
-				</div>
-				<div style="padding:12px 20px;border-top:1px solid #333;display:flex;justify-content:flex-end;gap:8px;">
-					<button type="button" id="mb-skip-btn" onclick="mbSkip()" style="background:#444;color:#fff;border:none;border-radius:4px;padding:8px 16px;cursor:pointer;">Skip</button>
-					<button type="button" id="mb-confirm-btn" onclick="mbConfirm()" style="display:none;background:#7c4dff;color:#fff;border:none;border-radius:4px;padding:8px 16px;cursor:pointer;">Confirm &amp; Download</button>
+					<div style="padding:12px 20px;border-top:1px solid #333;display:flex;justify-content:flex-end;gap:8px;">
+						<button type="button" onclick="mbSkip()" style="background:#444;color:#fff;border:none;border-radius:4px;padding:8px 16px;cursor:pointer;">Skip</button>
+						<button type="button" id="mb-confirm-btn" onclick="mbConfirm()" style="display:none;background:#7c4dff;color:#fff;border:none;border-radius:4px;padding:8px 16px;cursor:pointer;">Confirm &amp; Download</button>
+					</div>
 				</div>
 			</div>
-		</div>
 
 		<script type="text/javascript">
-			var fintubePluginId = 'd20aa9ed-eafc-4578-b320-4e3b7093129c';
-			var fintubeConfig = null;
-			var fintubeSearchResults = [];
+		var fintubePluginId = 'd20aa9ed-eafc-4578-b320-4e3b7093129c';
+		var fintubeConfig = null;
+		var fintubeSearchResults = [];
+		var mbPendingDownload = null;
 
-				function fintubeUrl(endpoint, params) {
-					var url = ApiClient.getUrl(endpoint);
-					var sep = url.indexOf('?') >= 0 ? '&' : '?';
-					var parts = [];
-					for (var k in params) parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
-					return parts.length ? url + sep + parts.join('&') : url;
-				}
+		// ============================================================
+		// Utility
+		// ============================================================
 
-				function loadConfig() {
-					return ApiClient.getPluginConfiguration(fintubePluginId).then(function(config) {
-						fintubeConfig = config;
-						document.getElementById('fintube-videopath').value = config.defaultVideoPath || '';
-						document.getElementById('fintube-audiopath').value = config.defaultAudioPath || '';
-						document.getElementById('fintube-preset').value = config.downloadPreset || 'balanced';
-						updatePathsIndicator();
-					});
-				}
+		function fintubeUrl(endpoint, params) {
+			var url = ApiClient.getUrl(endpoint);
+			var sep = url.indexOf('?') >= 0 ? '&' : '?';
+			var parts = [];
+			for (var k in params) parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+			return parts.length ? url + sep + parts.join('&') : url;
+		}
 
-				function updatePathsIndicator() {
-					var vp = document.getElementById('fintube-videopath').value;
-					var ap = document.getElementById('fintube-audiopath').value;
-					var indicator = document.getElementById('fintube-paths-indicator');
-					if (vp && ap) {
-						indicator.innerHTML = '<span class="material-icons" style="font-size:.9em;vertical-align:middle;color:#4caf50;">check_circle</span> Configured';
-						indicator.style.color = '#4caf50';
-					} else {
-						indicator.innerHTML = '<span class="material-icons" style="font-size:.9em;vertical-align:middle;color:#ff9800;">warning</span> Not configured';
-						indicator.style.color = '#ff9800';
+		function parseYT(linkorid) {
+			if (linkorid.startsWith('http')) {
+				var regExp = /^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+				var match = linkorid.match(regExp);
+				return (match && match[2].length === 11) ? match[2] : linkorid;
+			}
+			return linkorid;
+		}
+
+		function formatDuration(seconds) {
+			if (!seconds || seconds <= 0) return '--:--';
+			var h = Math.floor(seconds / 3600);
+			var m = Math.floor((seconds % 3600) / 60);
+			var s = Math.floor(seconds % 60);
+			if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+			return m + ':' + String(s).padStart(2, '0');
+		}
+
+		function formatViews(count) {
+			if (!count || count <= 0) return '';
+			if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M views';
+			if (count >= 1000) return (count / 1000).toFixed(1) + 'K views';
+			return count + ' views';
+		}
+
+		// ============================================================
+		// Custom Preset Visibility
+		// ============================================================
+
+		function updateCustomOptsVisibility() {
+			var preset = document.getElementById('fintube-preset').value;
+			var panel = document.getElementById('fintube-custom-opts');
+			panel.style.display = (preset === 'custom') ? 'block' : 'none';
+		}
+
+		function updateBitrateState() {
+			var fmt = document.getElementById('custom-audio-format').value;
+			var bitrateEl = document.getElementById('custom-audio-bitrate');
+			bitrateEl.disabled = (fmt === 'flac');
+			if (fmt === 'flac') bitrateEl.title = 'FLAC is lossless — bitrate does not apply';
+			else bitrateEl.title = '';
+		}
+
+		function getCustomFields() {
+			return {
+				customMaxRes: document.getElementById('custom-max-res').value || '1080',
+				customVideoFormat: document.getElementById('custom-video-format').value || 'mp4',
+				customAudioFormat: document.getElementById('custom-audio-format').value || 'mp3',
+				customAudioBitrate: document.getElementById('custom-audio-bitrate').value || '192'
+			};
+		}
+
+		// ============================================================
+		// Config
+		// ============================================================
+
+		function loadConfig() {
+			ApiClient.getPluginConfiguration(fintubePluginId).then(function(config) {
+				fintubeConfig = config;
+				document.getElementById('fintube-videopath').value = config.defaultVideoPath || '';
+				document.getElementById('fintube-audiopath').value = config.defaultAudioPath || '';
+				document.getElementById('fintube-preset').value = config.downloadPreset || 'balanced';
+				document.getElementById('custom-max-res').value = config.customMaxResolution || '1080';
+				document.getElementById('custom-video-format').value = config.customVideoFormat || 'mp4';
+				document.getElementById('custom-audio-format').value = config.customAudioFormat || 'mp3';
+				document.getElementById('custom-audio-bitrate').value = config.customAudioBitrate || '192';
+				updateCustomOptsVisibility();
+				updateBitrateState();
+				updatePathsIndicator();
+			});
+
+			var url = ApiClient.getUrl('fintube/libraries');
+			ApiClient.ajax({ type: 'GET', url: url, dataType: 'json', contentType: 'application/json' })
+			.then(function(result) {
+				var html = '';
+				for (var i = 0; i < result.data.length; i++) {
+					for (var j = 0; j < result.data[i].length; j++) {
+						var loc = result.data[i][j];
+						html += '<option value="' + loc + '">' + loc + '</option>';
 					}
 				}
+				document.getElementById('dl-targetlibrary').innerHTML = html;
+			});
+		}
 
-				function savePathConfig() {
-					var statusEl = document.getElementById('fintube-path-save-status');
-					statusEl.innerHTML = '<span style="color:#aaa;">Saving...</span>';
-					ApiClient.getPluginConfiguration(fintubePluginId).then(function(config) {
-						config.defaultVideoPath = document.getElementById('fintube-videopath').value;
-						config.defaultAudioPath = document.getElementById('fintube-audiopath').value;
-						config.downloadPreset = document.getElementById('fintube-preset').value;
-						ApiClient.updatePluginConfiguration(fintubePluginId, config).then(function() {
-							fintubeConfig = config;
-							updatePathsIndicator();
-							statusEl.innerHTML = '<span class="material-icons" style="color:#4caf50;vertical-align:middle;">check_circle</span> <span style="color:#4caf50;">Saved!</span>';
-							setTimeout(function() { statusEl.innerHTML = ''; }, 3000);
-						});
-					}).catch(function() {
-						statusEl.innerHTML = '<span class="material-icons" style="color:#f44336;vertical-align:middle;">error</span> <span style="color:#f44336;">Failed to save</span>';
-					});
-				}
+		function updatePathsIndicator() {
+			var vp = document.getElementById('fintube-videopath').value;
+			var ap = document.getElementById('fintube-audiopath').value;
+			var indicator = document.getElementById('fintube-paths-indicator');
+			if (vp && ap) {
+				indicator.innerHTML = '<span class="material-icons" style="font-size:.9em;vertical-align:middle;color:#4caf50;">check_circle</span> Configured';
+				indicator.style.color = '#4caf50';
+			} else {
+				indicator.innerHTML = '<span class="material-icons" style="font-size:.9em;vertical-align:middle;color:#ff9800;">warning</span> Not configured';
+				indicator.style.color = '#ff9800';
+			}
+		}
 
-				document.getElementById('fintube-search-query').addEventListener('keydown', function(e) {
-					if (e.key === 'Enter') {
-						e.preventDefault();
-						performSearch();
-					}
+		function savePathConfig() {
+			var statusEl = document.getElementById('fintube-path-save-status');
+			statusEl.innerHTML = '<span style="color:#aaa;">Saving...</span>';
+			ApiClient.getPluginConfiguration(fintubePluginId).then(function(config) {
+				config.defaultVideoPath = document.getElementById('fintube-videopath').value;
+				config.defaultAudioPath = document.getElementById('fintube-audiopath').value;
+				config.downloadPreset = document.getElementById('fintube-preset').value;
+				config.customMaxResolution = document.getElementById('custom-max-res').value;
+				config.customVideoFormat = document.getElementById('custom-video-format').value;
+				config.customAudioFormat = document.getElementById('custom-audio-format').value;
+				config.customAudioBitrate = document.getElementById('custom-audio-bitrate').value;
+				ApiClient.updatePluginConfiguration(fintubePluginId, config).then(function() {
+					fintubeConfig = config;
+					updatePathsIndicator();
+					statusEl.innerHTML = '<span class="material-icons" style="color:#4caf50;vertical-align:middle;">check_circle</span> <span style="color:#4caf50;">Saved!</span>';
+					setTimeout(function() { statusEl.innerHTML = ''; }, 3000);
 				});
+			}).catch(function() {
+				statusEl.innerHTML = '<span class="material-icons" style="color:#f44336;vertical-align:middle;">error</span> <span style="color:#f44336;">Failed to save</span>';
+			});
+		}
 
-				function performSearch() {
-					var query = document.getElementById('fintube-search-query').value.trim();
-					if (!query) return;
+		// ============================================================
+		// MusicBrainz Modal (shared between search and direct download)
+		// ============================================================
 
-					var limit = document.getElementById('fintube-search-limit').value;
-					var loadingEl = document.getElementById('fintube-search-loading');
-					var errorEl = document.getElementById('fintube-search-error');
-					var resultsEl = document.getElementById('fintube-search-results');
-					var searchBtn = document.getElementById('fintube-search-btn');
+		function updateMbPreviewPath() {
+			var title = document.getElementById('mb-title').value.trim();
+			var artist = document.getElementById('mb-artist').value.trim();
+			var album = document.getElementById('mb-album').value.trim();
+			var el = document.getElementById('mb-preview-path');
+			var ext = 'mp3';
+			var preset = document.getElementById('fintube-preset').value;
+			if (preset === 'custom') {
+				ext = document.getElementById('custom-audio-format').value || 'mp3';
+			}
+			var path = '';
+			if (artist && album) path = artist + '/' + album + '/';
+			else if (artist) path = artist + '/';
+			path += (title || '%(title)s') + '.' + ext;
+			el.textContent = path;
+		}
 
-					loadingEl.style.display = 'block';
-					errorEl.style.display = 'none';
-					resultsEl.innerHTML = '';
-					searchBtn.setAttribute('disabled', 'true');
+		function selectMbResult(idx) {
+			var items = document.getElementById('mb-list').querySelectorAll('[data-mb-idx]');
+			for (var i = 0; i < items.length; i++) {
+				items[i].style.border = i === idx ? '1px solid #7c4dff' : '1px solid #333';
+				items[i].style.background = i === idx ? 'rgba(124,77,255,0.1)' : 'none';
+			}
+			var results = mbPendingDownload ? mbPendingDownload.mbResults : [];
+			if (results[idx]) {
+				document.getElementById('mb-title').value = results[idx].title || '';
+				document.getElementById('mb-artist').value = results[idx].artist;
+				document.getElementById('mb-album').value = results[idx].album;
+				document.getElementById('mb-year').value = results[idx].year || '';
+				updateMbPreviewPath();
+			}
+		}
 
-					var url = fintubeUrl('fintube/search', { query: query, limit: limit });
-					ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' })
-					.then(function(data) {
-						loadingEl.style.display = 'none';
-						searchBtn.removeAttribute('disabled');
-						renderResults(data);
-					})
-					.catch(function(err) {
-						loadingEl.style.display = 'none';
-						searchBtn.removeAttribute('disabled');
-						errorEl.style.display = 'block';
-						var msg = 'Search failed';
-						if (err && err.responseJSON && err.responseJSON.message) msg = err.responseJSON.message;
-						else if (err && err.statusText) msg = err.statusText;
-						else if (err && err.message) msg = err.message;
-						document.getElementById('fintube-search-error-msg').textContent = msg;
-					});
-				}
+		function mbCancel() {
+			document.getElementById('mb-modal').style.display = 'none';
+			mbPendingDownload = null;
+		}
 
-				function formatDuration(seconds) {
-					if (!seconds || seconds <= 0) return '--:--';
-					var h = Math.floor(seconds / 3600);
-					var m = Math.floor((seconds % 3600) / 60);
-					var s = Math.floor(seconds % 60);
-					if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-					return m + ':' + String(s).padStart(2, '0');
-				}
+		function mbSkip() {
+			document.getElementById('mb-modal').style.display = 'none';
+			if (!mbPendingDownload) return;
+			if (mbPendingDownload.mode === 'search') {
+				executeSearchDownload(mbPendingDownload.ytid, mbPendingDownload.audioOnly, mbPendingDownload.index, '', '', '', '');
+			} else {
+				dlSubmitDownload(mbPendingDownload.payload);
+			}
+			mbPendingDownload = null;
+		}
 
-				function formatViews(count) {
-					if (!count || count <= 0) return '';
-					if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M views';
-					if (count >= 1000) return (count / 1000).toFixed(1) + 'K views';
-					return count + ' views';
-				}
+		function mbConfirm() {
+			document.getElementById('mb-modal').style.display = 'none';
+			var trackTitle = document.getElementById('mb-title').value.trim();
+			var artist = document.getElementById('mb-artist').value.trim();
+			var album = document.getElementById('mb-album').value.trim();
+			var organizePath = '';
+			if (artist && album) organizePath = artist + '/' + album;
+			else if (artist) organizePath = artist;
 
-			function renderResults(data) {
-				var container = document.getElementById('fintube-search-results');
+			if (!mbPendingDownload) return;
+
+			if (mbPendingDownload.mode === 'search') {
+				executeSearchDownload(mbPendingDownload.ytid, mbPendingDownload.audioOnly, mbPendingDownload.index, organizePath, trackTitle, artist, album);
+			} else {
+				var p = mbPendingDownload.payload;
+				if (trackTitle) p.targetfilename = trackTitle;
+				p.organizePath = organizePath;
+				p.metadataTitle = trackTitle || '';
+				p.metadataArtist = artist || '';
+				p.metadataAlbum = album || '';
+				dlSubmitDownload(p);
+			}
+			mbPendingDownload = null;
+		}
+
+		function renderMbList(results) {
+			var listEl = document.getElementById('mb-list');
+			if (!results || results.length === 0) {
+				listEl.innerHTML = '';
+				return;
+			}
+			var html = '';
+			for (var i = 0; i < results.length; i++) {
+				var r = results[i];
+				var coverUrl = r.releaseMbid
+					? 'https://coverartarchive.org/release/' + r.releaseMbid + '/front-250'
+					: '';
+				var coverHtml = coverUrl
+					? '<img src="' + coverUrl + '" loading="lazy" ' +
+						'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';" ' +
+						'style="width:40px;height:40px;border-radius:4px;object-fit:cover;flex-shrink:0;" />' +
+						'<span class="material-icons" style="display:none;width:40px;height:40px;border-radius:4px;background:#333;color:#666;font-size:1.3em;align-items:center;justify-content:center;flex-shrink:0;">album</span>'
+					: '<span class="material-icons" style="display:flex;width:40px;height:40px;border-radius:4px;background:#333;color:#666;font-size:1.3em;align-items:center;justify-content:center;flex-shrink:0;">album</span>';
+
+				html +=
+					'<div data-mb-idx="' + i + '" onclick="selectMbResult(' + i + ')" ' +
+						'style="padding:6px 8px;cursor:pointer;border-radius:6px;border:1px solid #333;margin-bottom:4px;display:flex;gap:10px;align-items:center;">' +
+						coverHtml +
+						'<div style="min-width:0;flex:1;">' +
+							'<div style="font-weight:bold;font-size:.85em;color:#e0e0e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+								(r.title || 'Unknown track') + '</div>' +
+							'<div style="font-size:.78em;color:#aaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+								(r.artist || 'Unknown') + ' — ' + (r.album || 'No album') + (r.year ? ' (' + r.year + ')' : '') + '</div>' +
+						'</div>' +
+						'<div style="flex-shrink:0;font-size:.75em;color:#666;">' + r.score + '%</div>' +
+					'</div>';
+			}
+			listEl.innerHTML = html;
+		}
+
+		function showMbModal(pendingData, results, videoTitle, videoChannel, parsedTitle, parsedArtist) {
+			mbPendingDownload = pendingData;
+			mbPendingDownload.mbResults = results;
+
+			var loadingEl = document.getElementById('mb-loading');
+			var contentEl = document.getElementById('mb-content');
+			var noResultEl = document.getElementById('mb-noresult');
+			var resultsEl = document.getElementById('mb-results');
+			var confirmBtn = document.getElementById('mb-confirm-btn');
+			var queryEl = document.getElementById('mb-manual-query');
+
+			var searchText = (parsedArtist || videoChannel || '') + (parsedTitle || videoTitle ? ' - ' + (parsedTitle || videoTitle) : '');
+			queryEl.value = searchText.trim();
+
+			loadingEl.style.display = 'none';
+			contentEl.style.display = 'block';
+			resultsEl.style.display = 'block';
+			confirmBtn.style.display = 'inline-block';
+
+			if (!results || results.length === 0) {
+				noResultEl.style.display = 'block';
+				renderMbList([]);
+				document.getElementById('mb-title').value = parsedTitle || videoTitle || '';
+				document.getElementById('mb-artist').value = parsedArtist || videoChannel || '';
+				document.getElementById('mb-album').value = '';
+				document.getElementById('mb-year').value = '';
+			} else {
+				noResultEl.style.display = 'none';
+				renderMbList(results);
+				document.getElementById('mb-title').value = results[0].title || parsedTitle || '';
+				document.getElementById('mb-artist').value = results[0].artist || '';
+				document.getElementById('mb-album').value = results[0].album || '';
+				document.getElementById('mb-year').value = results[0].year || '';
+				selectMbResult(0);
+			}
+
+			updateMbPreviewPath();
+			document.getElementById('mb-modal').style.display = 'flex';
+		}
+
+		function mbManualSearch() {
+			var query = document.getElementById('mb-manual-query').value.trim();
+			if (!query) return;
+
+			var listEl = document.getElementById('mb-list');
+			var noResultEl = document.getElementById('mb-noresult');
+			noResultEl.style.display = 'none';
+			listEl.innerHTML =
+				'<div style="padding:16px;text-align:center;">' +
+					'<span class="material-icons" style="font-size:1.5em;color:#8ab4f8;animation:fintube-spin 1s linear infinite;">sync</span>' +
+					'<div style="margin-top:6px;color:#aaa;font-size:.85em;">Searching...</div>' +
+				'</div>';
+
+			var mbUrl = fintubeUrl('fintube/musicbrainz_search', { title: query });
+			ApiClient.ajax({ type: 'GET', url: mbUrl, dataType: 'json' })
+			.then(function(data) {
 				var results = data.results || [];
-				fintubeSearchResults = results;
+				if (mbPendingDownload) mbPendingDownload.mbResults = results;
 
 				if (results.length === 0) {
-						container.innerHTML = '<div style="padding:30px;text-align:center;color:#888;">No results found.</div>';
-						return;
-					}
-
-					var html = '';
-
-					if (data.isPlaylist && data.playlistTitle) {
-						var escapedPlUrl = (data.playlistUrl || '').replace(/'/g, "\\'").replace(/\\/g, '\\\\');
-						html +=
-							'<div style="padding:16px;margin-bottom:16px;border-radius:10px;border:1px solid #5c6bc0;background:#1a1a2e;">' +
-								'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">' +
-									'<span class="material-icons" style="font-size:1.6em;color:#7c4dff;">playlist_play</span>' +
-									'<div>' +
-										'<div style="font-weight:bold;font-size:1.15em;color:#e0e0e0;">' + (data.playlistTitle || 'Playlist') + '</div>' +
-										'<div style="color:#aaa;font-size:.85em;">' + results.length + ' videos</div>' +
-									'</div>' +
-								'</div>' +
-								'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">' +
-									'<button type="button" onclick="downloadPlaylist(\'' + escapedPlUrl + '\', false)" ' +
-										'id="playlist-dl-video-btn" class="raised emby-button" is="emby-button" style="white-space:nowrap;">' +
-										'<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">download</span> Download All (Video)' +
-									'</button>' +
-									'<button type="button" onclick="downloadPlaylist(\'' + escapedPlUrl + '\', true)" ' +
-										'id="playlist-dl-audio-btn" class="raised emby-button" is="emby-button" style="white-space:nowrap;">' +
-										'<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">library_music</span> Download All (Audio)' +
-									'</button>' +
-								'</div>' +
-								'<div id="playlist-dl-status" style="margin-top:10px;"></div>' +
-							'</div>';
-					}
-
-					for (var i = 0; i < results.length; i++) {
-						var r = results[i];
-						html +=
-							'<div id="search-result-' + i + '" style="display:flex;gap:16px;padding:12px;margin-bottom:8px;border-radius:8px;border:1px solid #333;background:#1a1a1e;align-items:flex-start;">' +
-								'<div style="flex-shrink:0;width:200px;">' +
-									'<img src="' + (r.thumbnail || '') + '" style="width:200px;height:112px;object-fit:cover;border-radius:6px;background:#000;" />' +
-									'<div style="text-align:center;margin-top:4px;color:#aaa;font-size:.8em;">' + formatDuration(r.duration) + '</div>' +
-								'</div>' +
-								'<div style="flex:1;min-width:0;">' +
-									'<div style="font-weight:bold;font-size:1em;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
-										'<a href="https://www.youtube.com/watch?v=' + r.id + '" target="_blank" style="color:#8ab4f8;text-decoration:none;">' + (r.title || 'Untitled') + '</a>' +
-									'</div>' +
-									'<div style="color:#aaa;font-size:.85em;margin-bottom:8px;">' +
-										(r.channel || '') +
-										(r.viewCount > 0 ? ' &middot; ' + formatViews(r.viewCount) : '') +
-									'</div>' +
-									'<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
-										'<button type="button" onclick="downloadFromSearch(\'' + r.id + '\', false, ' + i + ')" ' +
-											'class="raised emby-button" is="emby-button" style="white-space:nowrap;font-size:.85em;">' +
-											'<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">videocam</span> Download Video' +
-										'</button>' +
-										'<button type="button" onclick="downloadFromSearch(\'' + r.id + '\', true, ' + i + ')" ' +
-											'class="raised emby-button" is="emby-button" style="white-space:nowrap;font-size:.85em;">' +
-											'<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">music_note</span> Download Audio' +
-										'</button>' +
-									'</div>' +
-									'<div id="search-result-status-' + i + '" style="margin-top:8px;"></div>' +
-								'</div>' +
-							'</div>';
-					}
-					container.innerHTML = html;
-				}
-
-			var mbPendingDownload = null;
-
-			function updateMbPreviewPath() {
-				var title = document.getElementById('mb-title').value.trim();
-				var artist = document.getElementById('mb-artist').value.trim();
-				var album = document.getElementById('mb-album').value.trim();
-				var el = document.getElementById('mb-preview-path');
-				var path = '';
-				if (artist && album) path = artist + '/' + album + '/';
-				else if (artist) path = artist + '/';
-				path += (title || '%(title)s') + '.mp3';
-				el.textContent = path;
-			}
-
-			function selectMbResult(idx) {
-				var items = document.getElementById('mb-modal-list').querySelectorAll('[data-mb-idx]');
-				for (var i = 0; i < items.length; i++) {
-					items[i].style.border = i === idx ? '1px solid #7c4dff' : '1px solid #333';
-					items[i].style.background = i === idx ? 'rgba(124,77,255,0.1)' : 'none';
-				}
-				var results = mbPendingDownload ? mbPendingDownload.mbResults : [];
-				if (results[idx]) {
-					document.getElementById('mb-title').value = results[idx].title || '';
-					document.getElementById('mb-artist').value = results[idx].artist;
-					document.getElementById('mb-album').value = results[idx].album;
-					updateMbPreviewPath();
-				}
-			}
-
-			function mbCancel() {
-				document.getElementById('mb-modal').style.display = 'none';
-				mbPendingDownload = null;
-			}
-
-			function mbSkip() {
-				document.getElementById('mb-modal').style.display = 'none';
-				if (mbPendingDownload) {
-					executeDownload(mbPendingDownload.ytid, mbPendingDownload.audioOnly, mbPendingDownload.index, '', '', '', '');
-				}
-				mbPendingDownload = null;
-			}
-
-			function mbConfirm() {
-				document.getElementById('mb-modal').style.display = 'none';
-				var trackTitle = document.getElementById('mb-title').value.trim();
-				var artist = document.getElementById('mb-artist').value.trim();
-				var album = document.getElementById('mb-album').value.trim();
-				var organizePath = '';
-				if (artist && album) organizePath = artist + '/' + album;
-				else if (artist) organizePath = artist;
-				if (mbPendingDownload) {
-					executeDownload(mbPendingDownload.ytid, mbPendingDownload.audioOnly, mbPendingDownload.index, organizePath, trackTitle, artist, album);
-				}
-				mbPendingDownload = null;
-			}
-
-			function downloadFromSearch(ytid, audioOnly, index) {
-				var statusEl = document.getElementById('search-result-status-' + index);
-				if (!fintubeConfig) {
-					statusEl.innerHTML = '<span style="color:#f44336;">Plugin configuration not loaded. Refresh the page.</span>';
-					return;
-				}
-
-				var targetPath = audioOnly
-					? (document.getElementById('fintube-audiopath').value || fintubeConfig.defaultAudioPath)
-					: (document.getElementById('fintube-videopath').value || fintubeConfig.defaultVideoPath);
-				if (!targetPath) {
-					statusEl.innerHTML = '<span style="color:#f44336;">Default ' + (audioOnly ? 'audio' : 'video') + ' path not configured. Open "Download Paths" above and set it.</span>';
-					return;
-				}
-
-				if (audioOnly && fintubeConfig.enableMusicOrganizer !== false) {
-					var videoInfo = fintubeSearchResults[index];
-					var title = videoInfo ? (videoInfo.title || '') : '';
-					var artist = videoInfo ? (videoInfo.channel || '') : '';
-
-					statusEl.innerHTML =
-						'<div style="display:flex;align-items:center;gap:8px;">' +
-							'<span class="material-icons" style="color:#7c4dff;animation:fintube-search-spin 1s linear infinite;">sync</span>' +
-							'<span style="color:#aaa;">Querying MusicBrainz...</span>' +
-						'</div>';
-
-					if (title) {
-						var mbUrl = fintubeUrl('fintube/musicbrainz_search', { title: title, artist: artist });
-						ApiClient.ajax({ type: 'GET', url: mbUrl, dataType: 'json' })
-						.then(function(data) {
-							statusEl.innerHTML = '';
-							showMbModal(ytid, audioOnly, index, data.results || [], title, artist, data.parsedTitle || '', data.parsedArtist || '');
-						})
-						.catch(function() {
-							statusEl.innerHTML = '';
-							showMbModal(ytid, audioOnly, index, [], title, artist, '', '');
-						});
-					} else {
-						statusEl.innerHTML = '';
-						showMbModal(ytid, audioOnly, index, [], '', '', '', '');
-					}
-					return;
-				}
-
-				executeDownload(ytid, audioOnly, index, '');
-			}
-
-			function showMbModal(ytid, audioOnly, index, results, videoTitle, videoChannel, parsedTitle, parsedArtist) {
-				mbPendingDownload = { ytid: ytid, audioOnly: audioOnly, index: index, mbResults: results };
-
-				var modal = document.getElementById('mb-modal');
-				var loadingEl = document.getElementById('mb-modal-loading');
-				var contentEl = document.getElementById('mb-modal-content');
-				var noResultEl = document.getElementById('mb-modal-noresult');
-				var resultsEl = document.getElementById('mb-modal-results');
-				var confirmBtn = document.getElementById('mb-confirm-btn');
-				var listEl = document.getElementById('mb-modal-list');
-
-				loadingEl.style.display = 'none';
-				contentEl.style.display = 'block';
-				resultsEl.style.display = 'block';
-				confirmBtn.style.display = 'inline-block';
-
-				if (!results || results.length === 0) {
 					noResultEl.style.display = 'block';
-					listEl.innerHTML = '';
-					document.getElementById('mb-title').value = parsedTitle || videoTitle || '';
-					document.getElementById('mb-artist').value = parsedArtist || videoChannel || '';
-					document.getElementById('mb-album').value = '';
+					renderMbList([]);
 				} else {
 					noResultEl.style.display = 'none';
-
-					var html = '';
-					for (var i = 0; i < results.length; i++) {
-						var r = results[i];
-						html +=
-							'<div data-mb-idx="' + i + '" onclick="selectMbResult(' + i + ')" ' +
-								'style="padding:8px 10px;cursor:pointer;border-radius:6px;border:1px solid #333;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;">' +
-								'<div style="min-width:0;">' +
-									'<div style="font-weight:bold;font-size:.9em;color:#e0e0e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
-										(r.artist || 'Unknown') + '</div>' +
-									'<div style="font-size:.8em;color:#aaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
-										(r.album || 'No album') + (r.year ? ' (' + r.year + ')' : '') + '</div>' +
-								'</div>' +
-								'<div style="flex-shrink:0;font-size:.75em;color:#666;margin-left:8px;">' + r.score + '%</div>' +
-							'</div>';
-					}
-					listEl.innerHTML = html;
-
-					document.getElementById('mb-title').value = results[0].title || parsedTitle || '';
+					renderMbList(results);
+					document.getElementById('mb-title').value = results[0].title || '';
 					document.getElementById('mb-artist').value = results[0].artist || '';
 					document.getElementById('mb-album').value = results[0].album || '';
+					document.getElementById('mb-year').value = results[0].year || '';
 					selectMbResult(0);
+					updateMbPreviewPath();
 				}
+			})
+			.catch(function() {
+				noResultEl.style.display = 'block';
+				renderMbList([]);
+			});
+		}
 
-				updateMbPreviewPath();
-				modal.style.display = 'flex';
+		document.getElementById('mb-manual-query').addEventListener('keydown', function(e) {
+			if (e.key === 'Enter') { e.preventDefault(); mbManualSearch(); }
+		});
+
+		document.getElementById('mb-title').addEventListener('input', updateMbPreviewPath);
+		document.getElementById('mb-artist').addEventListener('input', updateMbPreviewPath);
+		document.getElementById('mb-album').addEventListener('input', updateMbPreviewPath);
+
+		// ============================================================
+		// Task Polling (shared)
+		// ============================================================
+
+		function startPolling(taskId, statusEl, disableButtons, enableButtons) {
+			var pollInterval = setInterval(function() {
+				var url = fintubeUrl('fintube/task_status', { id: taskId });
+				ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' })
+				.then(function(task) {
+					var scanNote = task.libraryScanQueued
+						? '<div style="margin-top:6px;font-size:.8em;color:#8ab4f8;">' +
+							'<span class="material-icons" style="font-size:.9em;vertical-align:middle;">refresh</span> Library scan triggered' +
+						  '</div>'
+						: '';
+
+					if (task.status === 'Completed') {
+						clearInterval(pollInterval);
+						enableButtons();
+						var doneMsg = 'Download completed!';
+						if (task.videoCount > 1) doneMsg = task.completedCount + ' of ' + task.videoCount + ' videos downloaded successfully!';
+						statusEl.innerHTML =
+							'<div style="padding:8px;border-radius:6px;background:rgba(76,175,80,0.1);border:1px solid #4caf50;">' +
+								'<div style="display:flex;align-items:center;gap:8px;">' +
+									'<span class="material-icons" style="color:#4caf50;">check_circle</span>' +
+									'<span style="color:#4caf50;">' + doneMsg + '</span>' +
+								'</div>' +
+								scanNote +
+							'</div>';
+					} else if (task.status === 'CompletedWithErrors') {
+						clearInterval(pollInterval);
+						enableButtons();
+						var successCount = task.completedCount || 0;
+						var warnMsg = successCount + ' of ' + task.videoCount + ' videos downloaded. ' + task.failedCount + ' failed:';
+						var failList = '';
+						if (task.failedVideos && task.failedVideos.length > 0) {
+							failList = '<ul style="margin:6px 0 0 20px;padding:0;font-size:.85em;color:#ccc;">';
+							for (var i = 0; i < task.failedVideos.length; i++) {
+								failList += '<li style="margin-bottom:2px;">' + task.failedVideos[i].replace(/</g, '&lt;') + '</li>';
+							}
+							failList += '</ul>';
+						}
+						statusEl.innerHTML =
+							'<div style="padding:10px;border-radius:6px;background:rgba(255,152,0,0.1);border:1px solid #ff9800;">' +
+								'<div style="display:flex;align-items:center;gap:8px;">' +
+									'<span class="material-icons" style="color:#ff9800;">warning</span>' +
+									'<span style="color:#ff9800;">' + warnMsg + '</span>' +
+								'</div>' +
+								failList +
+								scanNote +
+							'</div>';
+					} else if (task.status === 'Failed') {
+						clearInterval(pollInterval);
+						enableButtons();
+						var errDetail = task.error || 'Download failed';
+						var failListErr = '';
+						if (task.failedVideos && task.failedVideos.length > 0) {
+							failListErr = '<ul style="margin:6px 0 0 20px;padding:0;font-size:.85em;color:#ccc;">';
+							for (var j = 0; j < task.failedVideos.length; j++) {
+								failListErr += '<li style="margin-bottom:2px;">' + task.failedVideos[j].replace(/</g, '&lt;') + '</li>';
+							}
+							failListErr += '</ul>';
+						}
+						statusEl.innerHTML =
+							'<div style="padding:10px;border-radius:6px;background:rgba(244,67,54,0.1);border:1px solid #f44336;">' +
+								'<div style="display:flex;align-items:center;gap:8px;">' +
+									'<span class="material-icons" style="color:#f44336;">error</span>' +
+									'<span style="color:#f44336;">' + errDetail + '</span>' +
+								'</div>' +
+								failListErr +
+							'</div>';
+					} else {
+						if (task.videoCount > 1) {
+							var progressText = 'Downloading video ' + (task.completedCount + 1) + ' of ' + task.videoCount + '...';
+							if (task.failedCount > 0) progressText += ' (' + task.failedCount + ' failed)';
+							var progressWidth = Math.round((task.completedCount / task.videoCount) * 100);
+							statusEl.innerHTML =
+								'<div style="display:flex;align-items:center;gap:8px;">' +
+									'<span class="material-icons" style="color:#8ab4f8;animation:fintube-spin 1s linear infinite;">sync</span>' +
+									'<span style="color:#aaa;">' + progressText + '</span>' +
+								'</div>' +
+								'<div style="margin-top:6px;background:#333;border-radius:4px;height:6px;overflow:hidden;">' +
+									'<div style="background:#8ab4f8;height:100%;width:' + progressWidth + '%;transition:width .3s;"></div>' +
+								'</div>';
+						} else {
+							statusEl.innerHTML =
+								'<div style="display:flex;align-items:center;gap:8px;">' +
+									'<span class="material-icons" style="color:#8ab4f8;animation:fintube-spin 1s linear infinite;">sync</span>' +
+									'<span style="color:#aaa;">Downloading...</span>' +
+								'</div>';
+						}
+					}
+				})
+				.catch(function() {});
+			}, 1500);
+			return pollInterval;
+		}
+
+		// ============================================================
+		// Search
+		// ============================================================
+
+		document.getElementById('fintube-search-query').addEventListener('keydown', function(e) {
+			if (e.key === 'Enter') { e.preventDefault(); performSearch(); }
+		});
+
+		function performSearch() {
+			var query = document.getElementById('fintube-search-query').value.trim();
+			if (!query) return;
+
+			var limit = document.getElementById('fintube-search-limit').value;
+			var loadingEl = document.getElementById('fintube-search-loading');
+			var errorEl = document.getElementById('fintube-search-error');
+			var resultsEl = document.getElementById('fintube-search-results');
+			var searchBtn = document.getElementById('fintube-search-btn');
+
+			loadingEl.style.display = 'block';
+			errorEl.style.display = 'none';
+			resultsEl.innerHTML = '';
+			searchBtn.setAttribute('disabled', 'true');
+
+			var url = fintubeUrl('fintube/search', { query: query, limit: limit });
+			ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' })
+			.then(function(data) {
+				loadingEl.style.display = 'none';
+				searchBtn.removeAttribute('disabled');
+				renderResults(data);
+			})
+			.catch(function(err) {
+				loadingEl.style.display = 'none';
+				searchBtn.removeAttribute('disabled');
+				errorEl.style.display = 'block';
+				var msg = 'Search failed';
+				if (err && err.responseJSON && err.responseJSON.message) msg = err.responseJSON.message;
+				else if (err && err.statusText) msg = err.statusText;
+				else if (err && err.message) msg = err.message;
+				document.getElementById('fintube-search-error-msg').textContent = msg;
+			});
+		}
+
+		function renderResults(data) {
+			var container = document.getElementById('fintube-search-results');
+			var results = data.results || [];
+			fintubeSearchResults = results;
+
+			if (results.length === 0) {
+				container.innerHTML = '<div style="padding:30px;text-align:center;color:#888;">No results found.</div>';
+				return;
 			}
 
-			function executeDownload(ytid, audioOnly, index, organizePath, trackTitle, metaArtist, metaAlbum) {
-				var statusEl = document.getElementById('search-result-status-' + index);
-				var targetPath = audioOnly
-					? (document.getElementById('fintube-audiopath').value || fintubeConfig.defaultAudioPath)
-					: (document.getElementById('fintube-videopath').value || fintubeConfig.defaultVideoPath);
+			var html = '';
+
+			if (data.isPlaylist && data.playlistTitle) {
+				var escapedPlUrl = (data.playlistUrl || '').replace(/'/g, "\\'").replace(/\\/g, '\\\\');
+				html +=
+					'<div style="padding:16px;margin-bottom:16px;border-radius:10px;border:1px solid #5c6bc0;background:#1a1a2e;">' +
+						'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">' +
+							'<span class="material-icons" style="font-size:1.6em;color:#7c4dff;">playlist_play</span>' +
+							'<div>' +
+								'<div style="font-weight:bold;font-size:1.15em;color:#e0e0e0;">' + (data.playlistTitle || 'Playlist') + '</div>' +
+								'<div style="color:#aaa;font-size:.85em;">' + results.length + ' videos</div>' +
+							'</div>' +
+						'</div>' +
+						'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">' +
+							'<button type="button" onclick="downloadPlaylist(\'' + escapedPlUrl + '\', false)" ' +
+								'id="playlist-dl-video-btn" class="raised emby-button" is="emby-button" style="white-space:nowrap;">' +
+								'<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">download</span> Download All (Video)' +
+							'</button>' +
+							'<button type="button" onclick="downloadPlaylist(\'' + escapedPlUrl + '\', true)" ' +
+								'id="playlist-dl-audio-btn" class="raised emby-button" is="emby-button" style="white-space:nowrap;">' +
+								'<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">library_music</span> Download All (Audio)' +
+							'</button>' +
+						'</div>' +
+						'<div id="playlist-dl-status" style="margin-top:10px;"></div>' +
+					'</div>';
+			}
+
+			for (var i = 0; i < results.length; i++) {
+				var r = results[i];
+				html +=
+					'<div id="search-result-' + i + '" style="display:flex;gap:16px;padding:12px;margin-bottom:8px;border-radius:8px;border:1px solid #333;background:#1a1a1e;align-items:flex-start;">' +
+						'<div style="flex-shrink:0;width:200px;">' +
+							'<img src="' + (r.thumbnail || '') + '" style="width:200px;height:112px;object-fit:cover;border-radius:6px;background:#000;" />' +
+							'<div style="text-align:center;margin-top:4px;color:#aaa;font-size:.8em;">' + formatDuration(r.duration) + '</div>' +
+						'</div>' +
+						'<div style="flex:1;min-width:0;">' +
+							'<div style="font-weight:bold;font-size:1em;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+								'<a href="https://www.youtube.com/watch?v=' + r.id + '" target="_blank" style="color:#8ab4f8;text-decoration:none;">' + (r.title || 'Untitled') + '</a>' +
+							'</div>' +
+							'<div style="color:#aaa;font-size:.85em;margin-bottom:8px;">' +
+								(r.channel || '') +
+								(r.viewCount > 0 ? ' &middot; ' + formatViews(r.viewCount) : '') +
+							'</div>' +
+							'<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+								'<button type="button" onclick="downloadFromSearch(\'' + r.id + '\', false, ' + i + ')" ' +
+									'class="raised emby-button" is="emby-button" style="white-space:nowrap;font-size:.85em;">' +
+									'<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">videocam</span> Download Video' +
+								'</button>' +
+								'<button type="button" onclick="downloadFromSearch(\'' + r.id + '\', true, ' + i + ')" ' +
+									'class="raised emby-button" is="emby-button" style="white-space:nowrap;font-size:.85em;">' +
+									'<span class="material-icons" style="font-size:1.1em;vertical-align:middle;">music_note</span> Download Audio' +
+								'</button>' +
+							'</div>' +
+							'<div id="search-result-status-' + i + '" style="margin-top:8px;"></div>' +
+						'</div>' +
+					'</div>';
+			}
+			container.innerHTML = html;
+		}
+
+		// --- Search download flow ---
+
+		function downloadFromSearch(ytid, audioOnly, index) {
+			var statusEl = document.getElementById('search-result-status-' + index);
+			if (!fintubeConfig) {
+				statusEl.innerHTML = '<span style="color:#f44336;">Plugin configuration not loaded. Refresh the page.</span>';
+				return;
+			}
+
+			var targetPath = audioOnly
+				? (document.getElementById('fintube-audiopath').value || fintubeConfig.defaultAudioPath)
+				: (document.getElementById('fintube-videopath').value || fintubeConfig.defaultVideoPath);
+			if (!targetPath) {
+				statusEl.innerHTML = '<span style="color:#f44336;">Default ' + (audioOnly ? 'audio' : 'video') + ' path not configured. Open "Download Settings" above and set it.</span>';
+				return;
+			}
+
+			if (audioOnly && fintubeConfig.enableMusicOrganizer !== false) {
+				var videoInfo = fintubeSearchResults[index];
+				var title = videoInfo ? (videoInfo.title || '') : '';
+				var artist = videoInfo ? (videoInfo.channel || '') : '';
 
 				statusEl.innerHTML =
 					'<div style="display:flex;align-items:center;gap:8px;">' +
-						'<span class="material-icons" style="color:#8ab4f8;animation:fintube-search-spin 1s linear infinite;">sync</span>' +
-						'<span style="color:#aaa;">Downloading ' + (audioOnly ? 'audio' : 'video') + '...</span>' +
+						'<span class="material-icons" style="color:#7c4dff;animation:fintube-spin 1s linear infinite;">sync</span>' +
+						'<span style="color:#aaa;">Querying MusicBrainz...</span>' +
 					'</div>';
 
-				var buttons = document.getElementById('search-result-' + index).querySelectorAll('button');
-				for (var b = 0; b < buttons.length; b++) buttons[b].setAttribute('disabled', 'true');
-
-				var payload = {
-					ytid: ytid,
-					targetlibrary: targetPath,
-					targetfolder: '',
-					targetfilename: trackTitle || '',
-					audioonly: audioOnly,
-					preset: document.getElementById('fintube-preset').value || 'balanced',
-					organizePath: organizePath || '',
-					metadataTitle: trackTitle || '',
-					metadataArtist: metaArtist || '',
-					metadataAlbum: metaAlbum || ''
-				};
-
-				var url = fintubeUrl('fintube/submit_dl', {});
-				ApiClient.ajax({
-					type: 'POST',
-					url: url,
-					dataType: 'json',
-					data: JSON.stringify(payload),
-					contentType: 'application/json'
-				})
-				.then(function(result) {
-					for (var b = 0; b < buttons.length; b++) buttons[b].removeAttribute('disabled');
-					var msg = 'Download completed!';
-					if (organizePath) msg += ' Saved to: ' + organizePath + '/';
-					statusEl.innerHTML =
-						'<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;background:rgba(76,175,80,0.1);border:1px solid #4caf50;">' +
-							'<span class="material-icons" style="color:#4caf50;">check_circle</span>' +
-							'<span style="color:#4caf50;">' + msg + '</span>' +
-						'</div>';
-				})
-				.catch(function(err) {
-					for (var b = 0; b < buttons.length; b++) buttons[b].removeAttribute('disabled');
-					var errorMsg = 'Download failed';
-					if (err && err.responseJSON && err.responseJSON.message) errorMsg = err.responseJSON.message;
-					else if (err && err.statusText) errorMsg = err.statusText;
-					else if (err && err.message) errorMsg = err.message;
-					statusEl.innerHTML =
-						'<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;background:rgba(244,67,54,0.1);border:1px solid #f44336;">' +
-							'<span class="material-icons" style="color:#f44336;">error</span>' +
-							'<span style="color:#f44336;">' + errorMsg + '</span>' +
-						'</div>';
-				});
+				if (title) {
+					var mbUrl = fintubeUrl('fintube/musicbrainz_search', { title: title, artist: artist });
+					ApiClient.ajax({ type: 'GET', url: mbUrl, dataType: 'json' })
+					.then(function(data) {
+						statusEl.innerHTML = '';
+						showMbModal(
+							{ mode: 'search', ytid: ytid, audioOnly: audioOnly, index: index },
+							data.results || [], title, artist, data.parsedTitle || '', data.parsedArtist || ''
+						);
+					})
+					.catch(function() {
+						statusEl.innerHTML = '';
+						showMbModal(
+							{ mode: 'search', ytid: ytid, audioOnly: audioOnly, index: index },
+							[], title, artist, '', ''
+						);
+					});
+				} else {
+					statusEl.innerHTML = '';
+					showMbModal({ mode: 'search', ytid: ytid, audioOnly: audioOnly, index: index }, [], '', '', '', '');
+				}
+				return;
 			}
 
-				var playlistPollInterval = null;
+			executeSearchDownload(ytid, audioOnly, index, '');
+		}
 
-				function downloadPlaylist(playlistUrl, audioOnly) {
-					var statusEl = document.getElementById('playlist-dl-status');
-					if (!fintubeConfig) {
-						statusEl.innerHTML = '<span style="color:#f44336;">Plugin configuration not loaded. Refresh the page.</span>';
-						return;
-					}
+		function executeSearchDownload(ytid, audioOnly, index, organizePath, trackTitle, metaArtist, metaAlbum) {
+			var statusEl = document.getElementById('search-result-status-' + index);
+			var targetPath = audioOnly
+				? (document.getElementById('fintube-audiopath').value || fintubeConfig.defaultAudioPath)
+				: (document.getElementById('fintube-videopath').value || fintubeConfig.defaultVideoPath);
 
-					var targetPath = audioOnly
-						? (document.getElementById('fintube-audiopath').value || fintubeConfig.defaultAudioPath)
-						: (document.getElementById('fintube-videopath').value || fintubeConfig.defaultVideoPath);
-					if (!targetPath) {
-						statusEl.innerHTML = '<span style="color:#f44336;">Default ' + (audioOnly ? 'audio' : 'video') + ' path not configured. Open "Download Settings" above and set it.</span>';
-						return;
-					}
+			statusEl.innerHTML =
+				'<div style="display:flex;align-items:center;gap:8px;">' +
+					'<span class="material-icons" style="color:#8ab4f8;animation:fintube-spin 1s linear infinite;">sync</span>' +
+					'<span style="color:#aaa;">Starting download...</span>' +
+				'</div>';
 
-					var videoBtn = document.getElementById('playlist-dl-video-btn');
-					var audioBtn = document.getElementById('playlist-dl-audio-btn');
-					if (videoBtn) videoBtn.setAttribute('disabled', 'true');
-					if (audioBtn) audioBtn.setAttribute('disabled', 'true');
+			var buttons = document.getElementById('search-result-' + index).querySelectorAll('button');
+			for (var b = 0; b < buttons.length; b++) buttons[b].setAttribute('disabled', 'true');
 
-					statusEl.innerHTML =
-						'<div style="display:flex;align-items:center;gap:8px;">' +
-							'<span class="material-icons" style="color:#8ab4f8;animation:fintube-search-spin 1s linear infinite;">sync</span>' +
-							'<span style="color:#aaa;">Starting playlist download...</span>' +
-						'</div>';
+			var preset = document.getElementById('fintube-preset').value || 'balanced';
+			var payload = {
+				ytid: ytid,
+				targetlibrary: targetPath,
+				targetfolder: '',
+				targetfilename: trackTitle || '',
+				audioonly: audioOnly,
+				preset: preset,
+				organizePath: organizePath || '',
+				metadataTitle: trackTitle || '',
+				metadataArtist: metaArtist || '',
+				metadataAlbum: metaAlbum || ''
+			};
+			if (preset === 'custom') Object.assign(payload, getCustomFields());
 
-					var payload = {
-						ytid: playlistUrl,
-						targetlibrary: targetPath,
-						targetfolder: '',
-						targetfilename: '',
-						audioonly: audioOnly,
-						preset: document.getElementById('fintube-preset').value || 'balanced',
-						isPlaylist: true
-					};
+			var url = fintubeUrl('fintube/submit_dl', {});
+			ApiClient.ajax({ type: 'POST', url: url, dataType: 'json', data: JSON.stringify(payload), contentType: 'application/json' })
+			.then(function(result) {
+				if (result && result.taskId) {
+					startPolling(result.taskId, statusEl,
+						function() {},
+						function() {
+							for (var b = 0; b < buttons.length; b++) buttons[b].removeAttribute('disabled');
+						}
+					);
+				}
+			})
+			.catch(function(err) {
+				for (var b = 0; b < buttons.length; b++) buttons[b].removeAttribute('disabled');
+				var errorMsg = 'Download failed';
+				if (err && err.responseJSON && err.responseJSON.message) errorMsg = err.responseJSON.message;
+				else if (err && err.statusText) errorMsg = err.statusText;
+				else if (err && err.message) errorMsg = err.message;
+				statusEl.innerHTML =
+					'<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;background:rgba(244,67,54,0.1);border:1px solid #f44336;">' +
+						'<span class="material-icons" style="color:#f44336;">error</span>' +
+						'<span style="color:#f44336;">' + errorMsg + '</span>' +
+					'</div>';
+			});
+		}
 
-					var url = fintubeUrl('fintube/submit_dl', {});
-					ApiClient.ajax({
-						type: 'POST',
-						url: url,
-						dataType: 'json',
-						data: JSON.stringify(payload),
-						contentType: 'application/json'
-					})
-					.then(function(result) {
-						if (result && result.async && result.taskId) {
-							startPolling(result.taskId, statusEl, videoBtn, audioBtn);
-						} else {
+		// --- Playlist download ---
+
+		function downloadPlaylist(playlistUrl, audioOnly) {
+			var statusEl = document.getElementById('playlist-dl-status');
+			if (!fintubeConfig) {
+				statusEl.innerHTML = '<span style="color:#f44336;">Plugin configuration not loaded. Refresh the page.</span>';
+				return;
+			}
+
+			var targetPath = audioOnly
+				? (document.getElementById('fintube-audiopath').value || fintubeConfig.defaultAudioPath)
+				: (document.getElementById('fintube-videopath').value || fintubeConfig.defaultVideoPath);
+			if (!targetPath) {
+				statusEl.innerHTML = '<span style="color:#f44336;">Default ' + (audioOnly ? 'audio' : 'video') + ' path not configured. Open "Download Settings" above and set it.</span>';
+				return;
+			}
+
+			var videoBtn = document.getElementById('playlist-dl-video-btn');
+			var audioBtn = document.getElementById('playlist-dl-audio-btn');
+			if (videoBtn) videoBtn.setAttribute('disabled', 'true');
+			if (audioBtn) audioBtn.setAttribute('disabled', 'true');
+
+			statusEl.innerHTML =
+				'<div style="display:flex;align-items:center;gap:8px;">' +
+					'<span class="material-icons" style="color:#8ab4f8;animation:fintube-spin 1s linear infinite;">sync</span>' +
+					'<span style="color:#aaa;">Starting playlist download...</span>' +
+				'</div>';
+
+			var plPreset = document.getElementById('fintube-preset').value || 'balanced';
+			var payload = {
+				ytid: playlistUrl,
+				targetlibrary: targetPath,
+				targetfolder: '',
+				targetfilename: '',
+				audioonly: audioOnly,
+				preset: plPreset,
+				isPlaylist: true
+			};
+			if (plPreset === 'custom') Object.assign(payload, getCustomFields());
+
+			var url = fintubeUrl('fintube/submit_dl', {});
+			ApiClient.ajax({ type: 'POST', url: url, dataType: 'json', data: JSON.stringify(payload), contentType: 'application/json' })
+			.then(function(result) {
+				if (result && result.taskId) {
+					startPolling(result.taskId, statusEl,
+						function() {},
+						function() {
 							if (videoBtn) videoBtn.removeAttribute('disabled');
 							if (audioBtn) audioBtn.removeAttribute('disabled');
-							statusEl.innerHTML =
-								'<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;background:rgba(76,175,80,0.1);border:1px solid #4caf50;">' +
-									'<span class="material-icons" style="color:#4caf50;">check_circle</span>' +
-									'<span style="color:#4caf50;">Download completed!</span>' +
-								'</div>';
 						}
-					})
-					.catch(function(err) {
-						if (videoBtn) videoBtn.removeAttribute('disabled');
-						if (audioBtn) audioBtn.removeAttribute('disabled');
-						var errorMsg = 'Playlist download failed';
-						if (err && err.responseJSON && err.responseJSON.message) errorMsg = err.responseJSON.message;
-						else if (err && err.statusText) errorMsg = err.statusText;
-						else if (err && err.message) errorMsg = err.message;
-						statusEl.innerHTML =
-							'<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;background:rgba(244,67,54,0.1);border:1px solid #f44336;">' +
-								'<span class="material-icons" style="color:#f44336;">error</span>' +
-								'<span style="color:#f44336;">' + errorMsg + '</span>' +
-							'</div>';
-					});
+					);
 				}
+			})
+			.catch(function(err) {
+				if (videoBtn) videoBtn.removeAttribute('disabled');
+				if (audioBtn) audioBtn.removeAttribute('disabled');
+				var errorMsg = 'Playlist download failed';
+				if (err && err.responseJSON && err.responseJSON.message) errorMsg = err.responseJSON.message;
+				else if (err && err.statusText) errorMsg = err.statusText;
+				else if (err && err.message) errorMsg = err.message;
+				statusEl.innerHTML =
+					'<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;background:rgba(244,67,54,0.1);border:1px solid #f44336;">' +
+						'<span class="material-icons" style="color:#f44336;">error</span>' +
+						'<span style="color:#f44336;">' + errorMsg + '</span>' +
+					'</div>';
+			});
+		}
 
-				function startPolling(taskId, statusEl, videoBtn, audioBtn) {
-					if (playlistPollInterval) clearInterval(playlistPollInterval);
+		// ============================================================
+		// Direct Download
+		// ============================================================
 
-					playlistPollInterval = setInterval(function() {
-						var url = fintubeUrl('fintube/task_status', { id: taskId });
-						ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' })
-						.then(function(task) {
-							if (task.status === 'Completed') {
-								clearInterval(playlistPollInterval);
-								playlistPollInterval = null;
-								if (videoBtn) videoBtn.removeAttribute('disabled');
-								if (audioBtn) audioBtn.removeAttribute('disabled');
-								var doneMsg = 'Playlist download completed!';
-								if (task.videoCount > 0) doneMsg = task.completedCount + ' of ' + task.videoCount + ' videos downloaded successfully!';
-								statusEl.innerHTML =
-									'<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;background:rgba(76,175,80,0.1);border:1px solid #4caf50;">' +
-										'<span class="material-icons" style="color:#4caf50;">check_circle</span>' +
-										'<span style="color:#4caf50;">' + doneMsg + '</span>' +
-									'</div>';
-							} else if (task.status === 'CompletedWithErrors') {
-								clearInterval(playlistPollInterval);
-								playlistPollInterval = null;
-								if (videoBtn) videoBtn.removeAttribute('disabled');
-								if (audioBtn) audioBtn.removeAttribute('disabled');
-								var successCount = task.completedCount || 0;
-								var warnMsg = successCount + ' of ' + task.videoCount + ' videos downloaded. ' + task.failedCount + ' failed:';
-								var failList = '';
-								if (task.failedVideos && task.failedVideos.length > 0) {
-									failList = '<ul style="margin:6px 0 0 20px;padding:0;font-size:.85em;color:#ccc;">';
-									for (var i = 0; i < task.failedVideos.length; i++) {
-										failList += '<li style="margin-bottom:2px;">' + task.failedVideos[i].replace(/</g, '&lt;') + '</li>';
-									}
-									failList += '</ul>';
-								}
-								statusEl.innerHTML =
-									'<div style="padding:10px;border-radius:6px;background:rgba(255,152,0,0.1);border:1px solid #ff9800;">' +
-										'<div style="display:flex;align-items:center;gap:8px;">' +
-											'<span class="material-icons" style="color:#ff9800;">warning</span>' +
-											'<span style="color:#ff9800;">' + warnMsg + '</span>' +
-										'</div>' +
-										failList +
-									'</div>';
-							} else if (task.status === 'Failed') {
-								clearInterval(playlistPollInterval);
-								playlistPollInterval = null;
-								if (videoBtn) videoBtn.removeAttribute('disabled');
-								if (audioBtn) audioBtn.removeAttribute('disabled');
-								var errDetail = task.error || 'Download failed';
-								var failListErr = '';
-								if (task.failedVideos && task.failedVideos.length > 0) {
-									failListErr = '<ul style="margin:6px 0 0 20px;padding:0;font-size:.85em;color:#ccc;">';
-									for (var j = 0; j < task.failedVideos.length; j++) {
-										failListErr += '<li style="margin-bottom:2px;">' + task.failedVideos[j].replace(/</g, '&lt;') + '</li>';
-									}
-									failListErr += '</ul>';
-								}
-								statusEl.innerHTML =
-									'<div style="padding:10px;border-radius:6px;background:rgba(244,67,54,0.1);border:1px solid #f44336;">' +
-										'<div style="display:flex;align-items:center;gap:8px;">' +
-											'<span class="material-icons" style="color:#f44336;">error</span>' +
-											'<span style="color:#f44336;">' + errDetail + '</span>' +
-										'</div>' +
-										failListErr +
-									'</div>';
-							} else {
-								var progressText = 'Downloading playlist...';
-								if (task.videoCount > 0) {
-									progressText = 'Downloading video ' + (task.completedCount + 1) + ' of ' + task.videoCount + '...';
-								}
-								if (task.failedCount > 0) {
-									progressText += ' (' + task.failedCount + ' failed)';
-								}
-								statusEl.innerHTML =
-									'<div style="display:flex;align-items:center;gap:8px;">' +
-										'<span class="material-icons" style="color:#8ab4f8;animation:fintube-search-spin 1s linear infinite;">sync</span>' +
-										'<span style="color:#aaa;">' + progressText + '</span>' +
-									'</div>' +
-									(task.videoCount > 0 ?
-										'<div style="margin-top:6px;background:#333;border-radius:4px;height:6px;overflow:hidden;">' +
-											'<div style="background:#8ab4f8;height:100%;width:' + Math.round((task.completedCount / task.videoCount) * 100) + '%;transition:width .3s;"></div>' +
-										'</div>' : '');
-							}
-						})
-						.catch(function() {});
-					}, 3000);
+		document.getElementById('dl-ytid').addEventListener('change', function() {
+			var id = parseYT(this.value);
+			document.getElementById('dl-preview').src = 'https://img.youtube.com/vi/' + id + '/mqdefault.jpg';
+		});
+
+		document.getElementById('dl-preview').onload = function() {
+			var btn = document.getElementById('dl-submit');
+			if (this.width === 120) btn.setAttribute('disabled', 'true');
+			else btn.removeAttribute('disabled');
+		};
+
+		function setDlState(isLoading) {
+			var btn = document.getElementById('dl-submit');
+			var text = document.getElementById('dl-submit-text');
+			var loading = document.getElementById('dl-loading');
+			if (isLoading) {
+				btn.setAttribute('disabled', 'true');
+				text.textContent = 'Downloading...';
+				loading.style.display = 'block';
+			} else {
+				btn.removeAttribute('disabled');
+				text.textContent = 'Download';
+				loading.style.display = 'none';
+			}
+		}
+
+		function showDlResult(success, message) {
+			var el = document.getElementById('dl-result');
+			var icon = success ? 'check_circle' : 'error';
+			var color = success ? '#4caf50' : '#f44336';
+			var bgColor = success ? 'rgba(76,175,80,0.1)' : 'rgba(244,67,54,0.1)';
+			var title = success ? 'Download completed successfully!' : 'Download failed';
+			el.innerHTML =
+				'<div style="margin-top:16px;padding:16px;border-radius:8px;border:1px solid ' + color + ';background:' + bgColor + ';">' +
+					'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">' +
+						'<span class="material-icons" style="color:' + color + ';font-size:1.5em;">' + icon + '</span>' +
+						'<strong style="color:' + color + ';font-size:1.05em;">' + title + '</strong>' +
+					'</div>' +
+					'<div style="color:#ccc;font-size:.9em;">' + message + '</div>' +
+				'</div>';
+		}
+
+		function dlSubmitDownload(payload) {
+			setDlState(true);
+			document.getElementById('dl-result').innerHTML = '';
+			var url = fintubeUrl('fintube/submit_dl', {});
+			ApiClient.ajax({ type: 'POST', url: url, dataType: 'json', data: JSON.stringify(payload), contentType: 'application/json' })
+			.then(function(result) {
+				if (result && result.taskId) {
+					startPolling(result.taskId,
+						document.getElementById('dl-loading'),
+						function() {},
+						function() { setDlState(false); }
+					);
 				}
+			})
+			.catch(function(err) {
+				setDlState(false);
+				var errorMsg = 'An unexpected error occurred.';
+				if (err && err.responseJSON && err.responseJSON.message) errorMsg = err.responseJSON.message;
+				else if (err && err.statusText) errorMsg = err.statusText;
+				else if (err && err.message) errorMsg = err.message;
+				showDlResult(false, errorMsg);
+			});
+		}
 
-			document.getElementById('mb-title').addEventListener('input', updateMbPreviewPath);
-			document.getElementById('mb-artist').addEventListener('input', updateMbPreviewPath);
-			document.getElementById('mb-album').addEventListener('input', updateMbPreviewPath);
+		document.getElementById('FinTubeDLForm').addEventListener('submit', function(e) {
+			e.preventDefault();
+			document.getElementById('dl-result').innerHTML = '';
 
-			(function() {
-				loadConfig();
-			})();
-			</script>
+			var ytid = parseYT(document.getElementById('dl-ytid').value);
+			var dlPreset = document.getElementById('fintube-preset').value || 'balanced';
+			var payload = {
+				ytid: ytid,
+				targetlibrary: document.getElementById('dl-targetlibrary').value,
+				targetfilename: document.getElementById('dl-targetfilename').value,
+				targetfolder: document.getElementById('dl-targetfolder').value,
+				audioonly: document.getElementById('dl-audioonly').checked,
+				preset: dlPreset,
+				organizePath: ''
+			};
+			if (dlPreset === 'custom') Object.assign(payload, getCustomFields());
+
+			var isAudio = document.getElementById('dl-audioonly').checked;
+			if (isAudio && fintubeConfig && fintubeConfig.enableMusicOrganizer !== false) {
+				var title = document.getElementById('dl-targetfilename').value || ytid;
+
+				document.getElementById('mb-loading').style.display = 'block';
+				document.getElementById('mb-content').style.display = 'none';
+				document.getElementById('mb-modal').style.display = 'flex';
+
+				var mbUrl = fintubeUrl('fintube/musicbrainz_search', { title: title });
+				ApiClient.ajax({ type: 'GET', url: mbUrl, dataType: 'json' })
+				.then(function(data) {
+					showMbModal(
+						{ mode: 'direct', payload: payload },
+						data.results || [], title, '', data.parsedTitle || '', data.parsedArtist || ''
+					);
+				})
+				.catch(function() {
+					showMbModal({ mode: 'direct', payload: payload }, [], title, '', '', '');
+				});
+			} else {
+				dlSubmitDownload(payload);
+			}
+		});
+
+		// ============================================================
+		// Init
+		// ============================================================
+		loadConfig();
+
+		</script>
 		</div>
 	</div>
 </div>

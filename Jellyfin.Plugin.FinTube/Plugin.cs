@@ -23,8 +23,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
-
-        ConfigurationChanged += OnConfigurationChanged;
     }
 
     /// <inheritdoc />
@@ -51,26 +49,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Configuration.configPage.html", GetType().Namespace),
                 EnableInMainMenu = true
             },
-            
-            new PluginPageInfo
-            {
-                Name = @"FinTubeDownload",
-                DisplayName = "FinTube Download",
-                EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Pages.downloadPage.html", GetType().Namespace),
-                EnableInMainMenu = true
-            },
 
             new PluginPageInfo
             {
-                Name = @"FinTubeSearch",
-                DisplayName = "FinTube Search",
+                Name = @"FinTubeMain",
+                DisplayName = "FinTube",
                 EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Pages.searchPage.html", GetType().Namespace),
                 EnableInMainMenu = true
             }
         };
-    }
-
-    private void OnConfigurationChanged(object? sender, BasePluginConfiguration e)
-    {
     }
 }
