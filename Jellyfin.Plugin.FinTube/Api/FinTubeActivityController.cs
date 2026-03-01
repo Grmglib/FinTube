@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Mime;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -58,6 +60,10 @@ public class FinTubeActivityController : ControllerBase
             public bool audioonly { get; set; } = false;
             public string preset { get; set; } = "balanced";
             public bool isPlaylist { get; set; } = false;
+            public string organizePath { get; set; } = "";
+            public string metadataTitle { get; set; } = "";
+            public string metadataArtist { get; set; } = "";
+            public string metadataAlbum { get; set; } = "";
         }
 
         [HttpPost("submit_dl")]
@@ -208,10 +214,20 @@ public class FinTubeActivityController : ControllerBase
                 }
             }
 
-            // Embed metadata and thumbnail in all presets
             args.Add("--embed-thumbnail");
             args.Add("--embed-metadata");
-            args.Add("--parse-metadata \"%(uploader)s:%(artist)s\"");
+
+            if (!string.IsNullOrWhiteSpace(data.metadataTitle))
+                args.Add($"--replace-in-metadata \"title\" \".+\" \"{data.metadataTitle.Replace("\"", "'")}\"");
+
+            if (!string.IsNullOrWhiteSpace(data.metadataArtist))
+                args.Add($"--parse-metadata \"{data.metadataArtist.Replace("\"", "'")}:%(artist)s\"");
+            else
+                args.Add("--parse-metadata \"%(uploader)s:%(artist)s\"");
+
+            if (!string.IsNullOrWhiteSpace(data.metadataAlbum))
+                args.Add($"--parse-metadata \"{data.metadataAlbum.Replace("\"", "'")}:%(album)s\"");
+
             args.Add("--parse-metadata \"%(upload_date>%Y)s:%(meta_date)s\"");
 
             string outputTemplate;
@@ -224,10 +240,18 @@ public class FinTubeActivityController : ControllerBase
             else
             {
                 args.Add("--no-playlist");
+                var basePath = targetPath;
+                if (data.audioonly && !string.IsNullOrWhiteSpace(data.organizePath))
+                {
+                    var parts = data.organizePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    var sanitizedParts = parts.Select(SanitizePath).Where(p => !string.IsNullOrWhiteSpace(p));
+                    basePath = System.IO.Path.Combine(new[] { targetPath }.Concat(sanitizedParts).ToArray());
+                }
+
                 if (!string.IsNullOrWhiteSpace(data.targetfilename))
-                    outputTemplate = System.IO.Path.Combine(targetPath, $"{data.targetfilename}.%(ext)s");
+                    outputTemplate = System.IO.Path.Combine(basePath, $"{data.targetfilename}.%(ext)s");
                 else
-                    outputTemplate = System.IO.Path.Combine(targetPath, "%(title)s.%(ext)s");
+                    outputTemplate = System.IO.Path.Combine(basePath, "%(title)s.%(ext)s");
             }
 
             args.Add($"-o \"{outputTemplate}\"");
@@ -488,6 +512,175 @@ public class FinTubeActivityController : ControllerBase
             };
 
             return Ok(response);
+        }
+
+        private static readonly HttpClient _mbClient = CreateMusicBrainzClient();
+
+        private static HttpClient CreateMusicBrainzClient()
+        {
+            var client = new HttpClient();
+            client.BaseAddress = new Uri("https://musicbrainz.org/ws/2/");
+            client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("FinTube", "1.1.0"));
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return client;
+        }
+
+        private static string SanitizePath(string name)
+        {
+            var invalid = Path.GetInvalidFileNameChars();
+            var sanitized = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
+            return sanitized.Trim().TrimEnd('.');
+        }
+
+        private static readonly string[] TitleSeparators = new[] { " - ", " – ", " — ", " | " };
+
+        private static (string parsedArtist, string parsedTitle) ParseYouTubeTitle(string title, string channel)
+        {
+            foreach (var sep in TitleSeparators)
+            {
+                var idx = title.IndexOf(sep, StringComparison.Ordinal);
+                if (idx > 0)
+                {
+                    var left = title[..idx].Trim();
+                    var right = title[(idx + sep.Length)..].Trim();
+                    // "Artist - Track" is the most common format
+                    return (left, CleanTrackTitle(right));
+                }
+            }
+
+            // No separator found: use full title as track, channel as artist
+            return (channel, CleanTrackTitle(title));
+        }
+
+        private static string CleanTrackTitle(string title)
+        {
+            // Remove common YouTube suffixes like "(Official Video)", "[HD]", "(Lyrics)", etc.
+            var cleaned = System.Text.RegularExpressions.Regex.Replace(
+                title,
+                @"\s*[\(\[](official\s*(music\s*)?video|official\s*audio|lyric\s*video|lyrics|hd|hq|4k|music\s*video|mv|visualizer|audio|video\s*oficial|clipe\s*oficial|remaster(ed)?|live)[\)\]]",
+                "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return cleaned.Trim();
+        }
+
+        private async Task<List<Models.MusicBrainzResult>> QueryMusicBrainz(string trackTitle, string artistName)
+        {
+            var queryParts = new List<string> { $"recording:\"{trackTitle}\"" };
+            if (!string.IsNullOrWhiteSpace(artistName))
+                queryParts.Add($"artist:\"{artistName}\"");
+
+            var query = string.Join(" AND ", queryParts);
+            var url = $"recording?query={Uri.EscapeDataString(query)}&fmt=json&limit=5";
+
+            _logger.LogInformation("MusicBrainz query: {url}", url);
+
+            var response = await _mbClient.GetAsync(url);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("MusicBrainz API returned {status}", response.StatusCode);
+                return new List<Models.MusicBrainzResult>();
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var results = new List<Models.MusicBrainzResult>();
+
+            if (root.TryGetProperty("recordings", out var recordings) && recordings.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var rec in recordings.EnumerateArray())
+                {
+                    var result = new Models.MusicBrainzResult();
+
+                    if (rec.TryGetProperty("id", out var idEl))
+                        result.RecordingMbid = idEl.GetString() ?? "";
+
+                    if (rec.TryGetProperty("title", out var titleEl))
+                        result.Title = titleEl.GetString() ?? "";
+
+                    if (rec.TryGetProperty("score", out var scoreEl) && scoreEl.ValueKind == JsonValueKind.Number)
+                        result.Score = scoreEl.GetInt32();
+
+                    if (rec.TryGetProperty("artist-credit", out var credits) && credits.ValueKind == JsonValueKind.Array)
+                    {
+                        var artistNames = new List<string>();
+                        foreach (var credit in credits.EnumerateArray())
+                        {
+                            if (credit.TryGetProperty("name", out var nameEl))
+                                artistNames.Add(nameEl.GetString() ?? "");
+                        }
+                        result.Artist = string.Join(", ", artistNames);
+                    }
+
+                    if (rec.TryGetProperty("releases", out var releases) && releases.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var release in releases.EnumerateArray())
+                        {
+                            if (release.TryGetProperty("title", out var albumEl))
+                                result.Album = albumEl.GetString() ?? "";
+                            if (release.TryGetProperty("id", out var relIdEl))
+                                result.ReleaseMbid = relIdEl.GetString() ?? "";
+                            if (release.TryGetProperty("date", out var dateEl))
+                            {
+                                var dateStr = dateEl.GetString() ?? "";
+                                result.Year = dateStr.Length >= 4 ? dateStr[..4] : dateStr;
+                            }
+                            break;
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(result.Artist))
+                        results.Add(result);
+                }
+            }
+
+            return results;
+        }
+
+        [HttpGet("musicbrainz_search")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public async Task<ActionResult<Dictionary<string, object>>> MusicBrainzSearch([FromQuery] string title, [FromQuery] string artist = "")
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(title))
+                    return StatusCode(400, new Dictionary<string, object>() { { "message", "Title is required" } });
+
+                var (parsedArtist, parsedTitle) = ParseYouTubeTitle(title, artist);
+                _logger.LogInformation("MusicBrainz: parsed '{title}' + '{artist}' => track='{parsedTitle}' artist='{parsedArtist}'",
+                    title, artist, parsedTitle, parsedArtist);
+
+                var results = await QueryMusicBrainz(parsedTitle, parsedArtist);
+
+                // Fallback: if no results with parsed artist, try with channel name if different
+                if (results.Count == 0 && !string.IsNullOrWhiteSpace(artist)
+                    && !string.Equals(parsedArtist, artist, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogInformation("MusicBrainz: no results, retrying with channel '{artist}' as artist", artist);
+                    results = await QueryMusicBrainz(parsedTitle, artist);
+                }
+
+                // Fallback: try with just the track title, no artist filter
+                if (results.Count == 0)
+                {
+                    _logger.LogInformation("MusicBrainz: no results, retrying without artist filter");
+                    results = await QueryMusicBrainz(parsedTitle, "");
+                }
+
+                return Ok(new Dictionary<string, object>
+                {
+                    { "results", results },
+                    { "count", results.Count },
+                    { "parsedTitle", parsedTitle },
+                    { "parsedArtist", parsedArtist }
+                });
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, "MusicBrainz search failed");
+                return StatusCode(500, new Dictionary<string, object>() { { "message", e.Message } });
+            }
         }
 
         [HttpGet("validate_path")]

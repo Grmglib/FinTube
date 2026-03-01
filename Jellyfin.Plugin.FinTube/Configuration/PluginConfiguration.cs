@@ -18,6 +18,7 @@ public class PluginConfiguration : BasePluginConfiguration
         defaultAudioPath = "";
         downloadPreset = "balanced";
         cookiesBrowser = "";
+        enableMusicOrganizer = true;
     }
 
     /// <summary>
@@ -49,4 +50,9 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Browser to read YouTube cookies from for age-restricted content (e.g. "firefox", "chrome", "edge")
     /// </summary>
     public string cookiesBrowser { get; set; }
+
+    /// <summary>
+    /// When enabled, audio downloads query MusicBrainz to identify artist/album and organize files into Artist/Album folders
+    /// </summary>
+    public bool enableMusicOrganizer { get; set; }
 }

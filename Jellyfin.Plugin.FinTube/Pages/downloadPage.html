@@ -117,7 +117,53 @@
 
 				</form>
 
-				<div id="dlBrowseModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,.7);justify-content:center;align-items:center;">
+				<div id="dlMbModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,.7);justify-content:center;align-items:center;">
+				<div style="background:#1c1c1e;color:#fff;border-radius:10px;width:90%;max-width:500px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.5);">
+					<div style="padding:16px 20px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center;">
+						<div style="display:flex;align-items:center;gap:10px;">
+							<span class="material-icons" style="color:#7c4dff;font-size:1.4em;">library_music</span>
+							<h3 style="margin:0;font-size:1.1em;">MusicBrainz - Identify Track</h3>
+						</div>
+						<button type="button" onclick="dlMbCancel()" style="background:none;border:none;color:#aaa;font-size:1.5em;cursor:pointer;padding:0 4px;">&times;</button>
+					</div>
+					<div id="dlMb-loading" style="display:none;padding:30px;text-align:center;">
+						<span class="material-icons" style="font-size:2em;color:#8ab4f8;animation:fintube-spin 1s linear infinite;">sync</span>
+						<div style="margin-top:8px;color:#aaa;">Searching MusicBrainz...</div>
+					</div>
+					<div id="dlMb-content" style="padding:16px 20px;">
+						<div id="dlMb-noresult" style="display:none;text-align:center;padding:16px;color:#aaa;">
+							<span class="material-icons" style="font-size:2em;color:#666;">search_off</span>
+							<div style="margin-top:8px;">No match found on MusicBrainz. The file will be saved without folder organization.</div>
+						</div>
+						<div id="dlMb-results" style="display:none;">
+							<div style="margin-bottom:12px;font-size:.85em;color:#aaa;">Select a match or edit the fields below:</div>
+							<div id="dlMb-list" style="max-height:150px;overflow-y:auto;margin-bottom:12px;"></div>
+							<div class="inputContainer" style="margin-bottom:8px;">
+								<label class="inputLabel" style="color:#ccc;">Track Title</label>
+								<input id="dlMb-title" class="emby-input" type="text" />
+								<div class="fieldDescription" style="color:#555;">File will be named with this title</div>
+							</div>
+							<div class="inputContainer" style="margin-bottom:8px;">
+								<label class="inputLabel" style="color:#ccc;">Artist</label>
+								<input id="dlMb-artist" class="emby-input" type="text" />
+							</div>
+							<div class="inputContainer" style="margin-bottom:8px;">
+								<label class="inputLabel" style="color:#ccc;">Album</label>
+								<input id="dlMb-album" class="emby-input" type="text" />
+							</div>
+							<div style="font-size:.8em;color:#666;margin-top:4px;">
+								Path: <span id="dlMb-preview-path" style="color:#8ab4f8;"></span>
+							</div>
+						</div>
+					</div>
+					<div style="padding:12px 20px;border-top:1px solid #333;display:flex;justify-content:flex-end;gap:8px;">
+						<button type="button" id="dlMb-skip-btn" onclick="dlMbSkip()" style="background:#444;color:#fff;border:none;border-radius:4px;padding:8px 16px;cursor:pointer;">Skip</button>
+						<button type="button" id="dlMb-confirm-btn" onclick="dlMbConfirm()" style="display:none;background:#7c4dff;color:#fff;border:none;border-radius:4px;padding:8px 16px;cursor:pointer;">Confirm &amp; Download</button>
+					</div>
+				</div>
+			</div>
+
+			<div id="dlBrowseModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,.7);justify-content:center;align-items:center;">
 					<div style="background:#1c1c1e;color:#fff;border-radius:10px;width:90%;max-width:600px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.5);">
 						<div style="padding:16px 20px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center;">
 							<h3 style="margin:0;font-size:1.1em;">Browse Server Files</h3>
@@ -138,8 +184,11 @@
 				</div>
 
 				<script type="text/javascript">
-					var fintubePluginId = 'd20aa9ed-eafc-4578-b320-4e3b7093129c';
-					var browseTargetInput = null;
+				var fintubePluginId = 'd20aa9ed-eafc-4578-b320-4e3b7093129c';
+				var browseTargetInput = null;
+				var dlFintubeConfig = null;
+				var dlMbPendingPayload = null;
+				var dlMbResults = [];
 
 					function fintubeUrl(endpoint, params) {
 						var url = ApiClient.getUrl(endpoint);
@@ -261,17 +310,18 @@
 					}
 
 					// --- Load exec config ---
-					function loadExecConfig() {
-						ApiClient.getPluginConfiguration(fintubePluginId).then(function(config) {
-							document.getElementById('fintube-exec-ytdl').value = config.exec_YTDL || '';
-							document.getElementById('fintube-exec-id3').value = config.exec_ID3 || '';
-							document.getElementById('fintube-dl-videopath').value = config.defaultVideoPath || '';
-							document.getElementById('fintube-dl-audiopath').value = config.defaultAudioPath || '';
-							document.getElementById('fintube-preset').value = config.downloadPreset || 'balanced';
-							validateExecPath('fintube-exec-ytdl');
-							validateExecPath('fintube-exec-id3');
-						});
-					}
+				function loadExecConfig() {
+					ApiClient.getPluginConfiguration(fintubePluginId).then(function(config) {
+						dlFintubeConfig = config;
+						document.getElementById('fintube-exec-ytdl').value = config.exec_YTDL || '';
+						document.getElementById('fintube-exec-id3').value = config.exec_ID3 || '';
+						document.getElementById('fintube-dl-videopath').value = config.defaultVideoPath || '';
+						document.getElementById('fintube-dl-audiopath').value = config.defaultAudioPath || '';
+						document.getElementById('fintube-preset').value = config.downloadPreset || 'balanced';
+						validateExecPath('fintube-exec-ytdl');
+						validateExecPath('fintube-exec-id3');
+					});
+				}
 
 					document.getElementById('fintube-exec-ytdl').addEventListener('change', function() { validateExecPath('fintube-exec-ytdl'); });
 					document.getElementById('fintube-exec-id3').addEventListener('change', function() { validateExecPath('fintube-exec-id3'); });
@@ -364,46 +414,186 @@
 						.addEventListener("change", function() {
 						});
 
-					document.querySelector('#FinTubeDLForm')
-                		.addEventListener('submit', function(e) {
-							e.preventDefault();
+				function dlUpdateMbPreviewPath() {
+					var title = document.getElementById('dlMb-title').value.trim();
+					var artist = document.getElementById('dlMb-artist').value.trim();
+					var album = document.getElementById('dlMb-album').value.trim();
+					var el = document.getElementById('dlMb-preview-path');
+					var path = '';
+					if (artist && album) path = artist + '/' + album + '/';
+					else if (artist) path = artist + '/';
+					path += (title || '%(title)s') + '.mp3';
+					el.textContent = path;
+				}
 
-							document.getElementById('fintube-result').innerHTML = '';
-							setDownloadState(true);
+				function dlSelectMbResult(idx) {
+					var items = document.getElementById('dlMb-list').querySelectorAll('[data-mb-idx]');
+					for (var i = 0; i < items.length; i++) {
+						items[i].style.border = i === idx ? '1px solid #7c4dff' : '1px solid #333';
+						items[i].style.background = i === idx ? 'rgba(124,77,255,0.1)' : 'none';
+					}
+					if (dlMbResults[idx]) {
+						document.getElementById('dlMb-title').value = dlMbResults[idx].title || '';
+						document.getElementById('dlMb-artist').value = dlMbResults[idx].artist;
+						document.getElementById('dlMb-album').value = dlMbResults[idx].album;
+						dlUpdateMbPreviewPath();
+					}
+				}
 
-							let payload = {
-								"ytid": 				parseYT(getfintubeValue("ytid")),
-								"targetlibrary":		getfintubeValue("targetlibrary"),
-								"targetfilename":		getfintubeValue("targetfilename"),
-								"targetfolder": 		getfintubeValue("targetfolder"),
-								"audioonly": 			document.getElementById("fintube-audioonly").checked,
-								"preset": 				getfintubeValue("preset")
-							}
-						
+				function dlMbCancel() {
+					document.getElementById('dlMbModal').style.display = 'none';
+					dlMbPendingPayload = null;
+				}
 
-						let url = "fintube/submit_dl";
-						url = window.ApiClient.getUrl(url);
+				function dlMbSkip() {
+					document.getElementById('dlMbModal').style.display = 'none';
+					if (dlMbPendingPayload) {
+						dlSubmitDownload(dlMbPendingPayload);
+					}
+					dlMbPendingPayload = null;
+				}
 
-						window.ApiClient.sendCustomQuery(url, payload).then(function(result) {
-							if (result && result.async && result.taskId) {
-								startDownloadPolling(result.taskId);
-							} else {
-								setDownloadState(false);
-								showResult(true, result["message"]);
-							}
-						}).catch(function(err) {
+				function dlMbConfirm() {
+					document.getElementById('dlMbModal').style.display = 'none';
+					var trackTitle = document.getElementById('dlMb-title').value.trim();
+					var artist = document.getElementById('dlMb-artist').value.trim();
+					var album = document.getElementById('dlMb-album').value.trim();
+					var organizePath = '';
+					if (artist && album) organizePath = artist + '/' + album;
+					else if (artist) organizePath = artist;
+					if (dlMbPendingPayload) {
+						if (trackTitle) dlMbPendingPayload.targetfilename = trackTitle;
+						dlMbPendingPayload.organizePath = organizePath;
+						dlMbPendingPayload.metadataTitle = trackTitle || '';
+						dlMbPendingPayload.metadataArtist = artist || '';
+						dlMbPendingPayload.metadataAlbum = album || '';
+						dlSubmitDownload(dlMbPendingPayload);
+					}
+					dlMbPendingPayload = null;
+				}
+
+				function dlShowMbModal(payload, results, videoTitle, parsedTitle, parsedArtist) {
+					dlMbPendingPayload = payload;
+					dlMbResults = results;
+
+					var modal = document.getElementById('dlMbModal');
+					var loadingEl = document.getElementById('dlMb-loading');
+					var contentEl = document.getElementById('dlMb-content');
+					var noResultEl = document.getElementById('dlMb-noresult');
+					var resultsEl = document.getElementById('dlMb-results');
+					var confirmBtn = document.getElementById('dlMb-confirm-btn');
+					var listEl = document.getElementById('dlMb-list');
+
+					loadingEl.style.display = 'none';
+					contentEl.style.display = 'block';
+					resultsEl.style.display = 'block';
+					confirmBtn.style.display = 'inline-block';
+
+					if (!results || results.length === 0) {
+						noResultEl.style.display = 'block';
+						listEl.innerHTML = '';
+						document.getElementById('dlMb-title').value = parsedTitle || videoTitle || '';
+						document.getElementById('dlMb-artist').value = parsedArtist || '';
+						document.getElementById('dlMb-album').value = '';
+					} else {
+						noResultEl.style.display = 'none';
+
+						var html = '';
+						for (var i = 0; i < results.length; i++) {
+							var r = results[i];
+							html +=
+								'<div data-mb-idx="' + i + '" onclick="dlSelectMbResult(' + i + ')" ' +
+									'style="padding:8px 10px;cursor:pointer;border-radius:6px;border:1px solid #333;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;">' +
+									'<div style="min-width:0;">' +
+										'<div style="font-weight:bold;font-size:.9em;color:#e0e0e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+											(r.artist || 'Unknown') + '</div>' +
+										'<div style="font-size:.8em;color:#aaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+											(r.album || 'No album') + (r.year ? ' (' + r.year + ')' : '') + '</div>' +
+									'</div>' +
+									'<div style="flex-shrink:0;font-size:.75em;color:#666;margin-left:8px;">' + r.score + '%</div>' +
+								'</div>';
+						}
+						listEl.innerHTML = html;
+
+						document.getElementById('dlMb-title').value = results[0].title || parsedTitle || '';
+						document.getElementById('dlMb-artist').value = results[0].artist || '';
+						document.getElementById('dlMb-album').value = results[0].album || '';
+						dlSelectMbResult(0);
+					}
+
+					dlUpdateMbPreviewPath();
+					modal.style.display = 'flex';
+				}
+
+				function dlSubmitDownload(payload) {
+					setDownloadState(true);
+
+					let url = "fintube/submit_dl";
+					url = window.ApiClient.getUrl(url);
+
+					window.ApiClient.sendCustomQuery(url, payload).then(function(result) {
+						if (result && result.async && result.taskId) {
+							startDownloadPolling(result.taskId);
+						} else {
 							setDownloadState(false);
-							var errorMsg = 'An unexpected error occurred.';
-							if (err && err.responseJSON && err.responseJSON.message) {
-								errorMsg = err.responseJSON.message;
-							} else if (err && err.statusText) {
-								errorMsg = err.statusText;
-							} else if (err && err.message) {
-								errorMsg = err.message;
-							}
-							showResult(false, errorMsg);
-						});
+							var msg = result["message"];
+							if (payload.organizePath) msg += '<br>Saved to: ' + payload.organizePath + '/';
+							showResult(true, msg);
+						}
+					}).catch(function(err) {
+						setDownloadState(false);
+						var errorMsg = 'An unexpected error occurred.';
+						if (err && err.responseJSON && err.responseJSON.message) {
+							errorMsg = err.responseJSON.message;
+						} else if (err && err.statusText) {
+							errorMsg = err.statusText;
+						} else if (err && err.message) {
+							errorMsg = err.message;
+						}
+						showResult(false, errorMsg);
 					});
+				}
+
+				document.getElementById('dlMb-title').addEventListener('input', dlUpdateMbPreviewPath);
+				document.getElementById('dlMb-artist').addEventListener('input', dlUpdateMbPreviewPath);
+				document.getElementById('dlMb-album').addEventListener('input', dlUpdateMbPreviewPath);
+
+				document.querySelector('#FinTubeDLForm')
+                		.addEventListener('submit', function(e) {
+						e.preventDefault();
+
+						document.getElementById('fintube-result').innerHTML = '';
+
+						let payload = {
+							"ytid": 				parseYT(getfintubeValue("ytid")),
+							"targetlibrary":		getfintubeValue("targetlibrary"),
+							"targetfilename":		getfintubeValue("targetfilename"),
+							"targetfolder": 		getfintubeValue("targetfolder"),
+							"audioonly": 			document.getElementById("fintube-audioonly").checked,
+							"preset": 				getfintubeValue("preset"),
+							"organizePath": 		""
+						};
+
+						var isAudio = document.getElementById("fintube-audioonly").checked;
+						if (isAudio && dlFintubeConfig && dlFintubeConfig.enableMusicOrganizer !== false) {
+							var title = getfintubeValue("targetfilename") || getfintubeValue("ytid");
+
+							document.getElementById('dlMb-loading').style.display = 'block';
+							document.getElementById('dlMb-content').style.display = 'none';
+							document.getElementById('dlMbModal').style.display = 'flex';
+
+							var mbUrl = fintubeUrl('fintube/musicbrainz_search', { title: title });
+							ApiClient.ajax({ type: 'GET', url: mbUrl, dataType: 'json' })
+							.then(function(data) {
+								dlShowMbModal(payload, data.results || [], title, data.parsedTitle || '', data.parsedArtist || '');
+							})
+							.catch(function() {
+								dlShowMbModal(payload, [], title, '', '');
+							});
+						} else {
+							dlSubmitDownload(payload);
+						}
+				});
 
 					var dlPollInterval = null;
 					function startDownloadPolling(taskId) {

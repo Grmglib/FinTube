@@ -47,6 +47,14 @@
                         </select>
                         <div class="fieldDescription">Select the browser to read YouTube cookies from for age-restricted content. The browser must be installed on the Jellyfin server and you must be logged into YouTube in that browser.</div>
                     </div>
+                    <h3 style="margin-top:24px;">Music Organizer</h3>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="enableMusicOrganizer" name="enableMusicOrganizer" type="checkbox" is="emby-checkbox" />
+                            <span class="checkboxLabel">Enable Music Organizer (MusicBrainz)</span>
+                        </label>
+                        <div class="fieldDescription">When enabled, audio downloads will query MusicBrainz to identify the artist and album. You can review and edit the match before downloading. Files will be organized into Artist/Album/ subfolders automatically.</div>
+                    </div>
                     <h3 style="margin-top:24px;">Default Download Paths</h3>
                     <div class="inputContainer" style="display:flex;align-items:flex-end;gap:8px;">
                         <div style="flex:1;">
@@ -234,6 +242,7 @@
                         document.querySelector('#defaultAudioPath').value = config.defaultAudioPath || '';
                         document.querySelector('#downloadPreset').value = config.downloadPreset || 'balanced';
                         document.querySelector('#cookiesBrowser').value = config.cookiesBrowser || '';
+                        document.querySelector('#enableMusicOrganizer').checked = config.enableMusicOrganizer !== false;
                         validateExecPath('exec_YTDL');
                         validateExecPath('exec_ID3');
                         Dashboard.hideLoadingMsg();
@@ -253,6 +262,7 @@
                     config.defaultAudioPath = document.querySelector('#defaultAudioPath').value;
                     config.downloadPreset = document.querySelector('#downloadPreset').value;
                     config.cookiesBrowser = document.querySelector('#cookiesBrowser').value;
+                    config.enableMusicOrganizer = document.querySelector('#enableMusicOrganizer').checked;
                     ApiClient.updatePluginConfiguration(TubeFinConfig.pluginUniqueId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     });
