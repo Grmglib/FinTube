@@ -24,4 +24,16 @@ public class MusicBrainzResult
 
     [JsonPropertyName("releaseMbid")]
     public string ReleaseMbid { get; set; } = "";
+
+    [JsonPropertyName("artistMbid")]
+    public string ArtistMbid { get; set; } = "";
+
+    [JsonPropertyName("trackNumber")]
+    public string TrackNumber { get; set; } = "";
+
+    [JsonPropertyName("totalTracks")]
+    public int TotalTracks { get; set; }
+
+    [JsonPropertyName("genre")]
+    public string Genre { get; set; } = "";
 }

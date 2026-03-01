@@ -256,6 +256,7 @@
 		var fintubeConfig = null;
 		var fintubeSearchResults = [];
 		var mbPendingDownload = null;
+		var mbSelectedIdx = 0;
 
 		// ============================================================
 		// Utility
@@ -418,10 +419,20 @@
 			}
 			var results = mbPendingDownload ? mbPendingDownload.mbResults : [];
 			if (results[idx]) {
-				document.getElementById('mb-title').value = results[idx].title || '';
-				document.getElementById('mb-artist').value = results[idx].artist;
-				document.getElementById('mb-album').value = results[idx].album;
-				document.getElementById('mb-year').value = results[idx].year || '';
+				mbSelectedIdx = idx;
+				var r = results[idx];
+				document.getElementById('mb-title').value = r.title || '';
+				document.getElementById('mb-artist').value = r.artist || '';
+				document.getElementById('mb-year').value = r.year || '';
+
+				var isSingle = !r.album || r.totalTracks <= 1;
+				if (isSingle) {
+					document.getElementById('mb-album').value = r.title || document.getElementById('mb-title').value;
+					if (!r.trackNumber) r.trackNumber = '1';
+				} else {
+					document.getElementById('mb-album').value = r.album;
+				}
+
 				updateMbPreviewPath();
 			}
 		}
@@ -435,7 +446,7 @@
 			document.getElementById('mb-modal').style.display = 'none';
 			if (!mbPendingDownload) return;
 			if (mbPendingDownload.mode === 'search') {
-				executeSearchDownload(mbPendingDownload.ytid, mbPendingDownload.audioOnly, mbPendingDownload.index, '', '', '', '');
+				executeSearchDownload(mbPendingDownload.ytid, mbPendingDownload.audioOnly, mbPendingDownload.index, '', '', '', '', '', '', '', '', '', '');
 			} else {
 				dlSubmitDownload(mbPendingDownload.payload);
 			}
@@ -447,14 +458,22 @@
 			var trackTitle = document.getElementById('mb-title').value.trim();
 			var artist = document.getElementById('mb-artist').value.trim();
 			var album = document.getElementById('mb-album').value.trim();
+			var year = document.getElementById('mb-year').value.trim();
 			var organizePath = '';
 			if (artist && album) organizePath = artist + '/' + album;
 			else if (artist) organizePath = artist;
 
+			var selectedResult = (mbPendingDownload && mbPendingDownload.mbResults) ? mbPendingDownload.mbResults[mbSelectedIdx] : null;
+			var trackNumber = selectedResult ? (selectedResult.trackNumber || '') : '';
+			var genre = selectedResult ? (selectedResult.genre || '') : '';
+			var artistMbid = selectedResult ? (selectedResult.artistMbid || '') : '';
+			var releaseMbid = selectedResult ? (selectedResult.releaseMbid || '') : '';
+			var recordingMbid = selectedResult ? (selectedResult.recordingMbid || '') : '';
+
 			if (!mbPendingDownload) return;
 
 			if (mbPendingDownload.mode === 'search') {
-				executeSearchDownload(mbPendingDownload.ytid, mbPendingDownload.audioOnly, mbPendingDownload.index, organizePath, trackTitle, artist, album);
+				executeSearchDownload(mbPendingDownload.ytid, mbPendingDownload.audioOnly, mbPendingDownload.index, organizePath, trackTitle, artist, album, year, trackNumber, genre, artistMbid, releaseMbid, recordingMbid);
 			} else {
 				var p = mbPendingDownload.payload;
 				if (trackTitle) p.targetfilename = trackTitle;
@@ -462,6 +481,12 @@
 				p.metadataTitle = trackTitle || '';
 				p.metadataArtist = artist || '';
 				p.metadataAlbum = album || '';
+				p.metadataYear = year || '';
+				p.metadataTrackNumber = trackNumber || '';
+				p.metadataGenre = genre || '';
+				p.metadataArtistMbid = artistMbid || '';
+				p.metadataReleaseMbid = releaseMbid || '';
+				p.metadataRecordingMbid = recordingMbid || '';
 				dlSubmitDownload(p);
 			}
 			mbPendingDownload = null;
@@ -853,7 +878,7 @@
 			executeSearchDownload(ytid, audioOnly, index, '');
 		}
 
-		function executeSearchDownload(ytid, audioOnly, index, organizePath, trackTitle, metaArtist, metaAlbum) {
+		function executeSearchDownload(ytid, audioOnly, index, organizePath, trackTitle, metaArtist, metaAlbum, metaYear, metaTrackNumber, metaGenre, metaArtistMbid, metaReleaseMbid, metaRecordingMbid) {
 			var statusEl = document.getElementById('search-result-status-' + index);
 			var targetPath = audioOnly
 				? (document.getElementById('fintube-audiopath').value || fintubeConfig.defaultAudioPath)
@@ -879,7 +904,13 @@
 				organizePath: organizePath || '',
 				metadataTitle: trackTitle || '',
 				metadataArtist: metaArtist || '',
-				metadataAlbum: metaAlbum || ''
+				metadataAlbum: metaAlbum || '',
+				metadataYear: metaYear || '',
+				metadataTrackNumber: metaTrackNumber || '',
+				metadataGenre: metaGenre || '',
+				metadataArtistMbid: metaArtistMbid || '',
+				metadataReleaseMbid: metaReleaseMbid || '',
+				metadataRecordingMbid: metaRecordingMbid || ''
 			};
 			if (preset === 'custom') Object.assign(payload, getCustomFields());
 

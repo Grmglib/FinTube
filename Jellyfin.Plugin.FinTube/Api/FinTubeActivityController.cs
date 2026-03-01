@@ -52,6 +52,12 @@ public class FinTubeActivityController : ControllerBase
             public string metadataTitle { get; set; } = "";
             public string metadataArtist { get; set; } = "";
             public string metadataAlbum { get; set; } = "";
+            public string metadataYear { get; set; } = "";
+            public string metadataTrackNumber { get; set; } = "";
+            public string metadataGenre { get; set; } = "";
+            public string metadataArtistMbid { get; set; } = "";
+            public string metadataReleaseMbid { get; set; } = "";
+            public string metadataRecordingMbid { get; set; } = "";
         }
 
         [HttpPost("submit_dl")]
@@ -210,14 +216,33 @@ public class FinTubeActivityController : ControllerBase
                 args.Add($"--replace-in-metadata \"title\" \".+\" \"{data.metadataTitle.Replace("\"", "'")}\"");
 
             if (!string.IsNullOrWhiteSpace(data.metadataArtist))
-                args.Add($"--parse-metadata \"{data.metadataArtist.Replace("\"", "'")}:%(artist)s\"");
+                args.Add($"--parse-metadata \"{data.metadataArtist.Replace("\"", "'")}:%(meta_artist)s\"");
             else
-                args.Add("--parse-metadata \"%(uploader)s:%(artist)s\"");
+                args.Add("--parse-metadata \"%(uploader)s:%(meta_artist)s\"");
 
             if (!string.IsNullOrWhiteSpace(data.metadataAlbum))
-                args.Add($"--parse-metadata \"{data.metadataAlbum.Replace("\"", "'")}:%(album)s\"");
+                args.Add($"--parse-metadata \"{data.metadataAlbum.Replace("\"", "'")}:%(meta_album)s\"");
 
-            args.Add("--parse-metadata \"%(upload_date>%Y)s:%(meta_date)s\"");
+            if (!string.IsNullOrWhiteSpace(data.metadataYear))
+                args.Add($"--parse-metadata \"{data.metadataYear}:%(meta_date)s\"");
+            else
+                args.Add("--parse-metadata \"%(upload_date>%Y)s:%(meta_date)s\"");
+
+            if (!string.IsNullOrWhiteSpace(data.metadataTrackNumber))
+                args.Add($"--parse-metadata \"{data.metadataTrackNumber}:%(meta_track)s\"");
+
+            if (!string.IsNullOrWhiteSpace(data.metadataGenre))
+                args.Add($"--parse-metadata \"{data.metadataGenre.Replace("\"", "'")}:%(meta_genre)s\"");
+
+            if (!string.IsNullOrWhiteSpace(data.metadataArtistMbid))
+            {
+                args.Add($"--parse-metadata \"{data.metadataArtistMbid}:%(meta_MUSICBRAINZ_ARTISTID)s\"");
+                args.Add($"--parse-metadata \"{data.metadataArtistMbid}:%(meta_MUSICBRAINZ_ALBUMARTISTID)s\"");
+            }
+            if (!string.IsNullOrWhiteSpace(data.metadataReleaseMbid))
+                args.Add($"--parse-metadata \"{data.metadataReleaseMbid}:%(meta_MUSICBRAINZ_ALBUMID)s\"");
+            if (!string.IsNullOrWhiteSpace(data.metadataRecordingMbid))
+                args.Add($"--parse-metadata \"{data.metadataRecordingMbid}:%(meta_MUSICBRAINZ_RELEASETRACKID)s\"");
 
             string outputTemplate;
             if (data.isPlaylist)
@@ -237,10 +262,12 @@ public class FinTubeActivityController : ControllerBase
                     basePath = System.IO.Path.Combine(new[] { targetPath }.Concat(sanitizedParts).ToArray());
                 }
 
-                if (!string.IsNullOrWhiteSpace(data.targetfilename))
-                    outputTemplate = System.IO.Path.Combine(basePath, $"{data.targetfilename}.%(ext)s");
-                else
-                    outputTemplate = System.IO.Path.Combine(basePath, "%(title)s.%(ext)s");
+                var fileName = !string.IsNullOrWhiteSpace(data.targetfilename)
+                    ? data.targetfilename
+                    : "%(title)s";
+                if (!string.IsNullOrWhiteSpace(data.metadataTrackNumber))
+                    fileName = $"{data.metadataTrackNumber}. {fileName}";
+                outputTemplate = System.IO.Path.Combine(basePath, $"{fileName}.%(ext)s");
             }
 
             args.Add($"-o \"{outputTemplate}\"");
@@ -573,7 +600,7 @@ public class FinTubeActivityController : ControllerBase
                 queryParts.Add($"artist:\"{artistName}\"");
 
             var query = string.Join(" AND ", queryParts);
-            var url = $"recording?query={Uri.EscapeDataString(query)}&fmt=json&limit=5";
+            var url = $"recording?query={Uri.EscapeDataString(query)}&fmt=json&limit=5&inc=tags";
 
             _logger.LogInformation("MusicBrainz query: {url}", url);
 
@@ -608,10 +635,17 @@ public class FinTubeActivityController : ControllerBase
                     if (rec.TryGetProperty("artist-credit", out var credits) && credits.ValueKind == JsonValueKind.Array)
                     {
                         var artistNames = new List<string>();
+                        bool firstArtist = true;
                         foreach (var credit in credits.EnumerateArray())
                         {
                             if (credit.TryGetProperty("name", out var nameEl))
                                 artistNames.Add(nameEl.GetString() ?? "");
+                            if (firstArtist && credit.TryGetProperty("artist", out var artistObj)
+                                && artistObj.TryGetProperty("id", out var artistIdEl))
+                            {
+                                result.ArtistMbid = artistIdEl.GetString() ?? "";
+                                firstArtist = false;
+                            }
                         }
                         result.Artist = string.Join(", ", artistNames);
                     }
@@ -629,7 +663,41 @@ public class FinTubeActivityController : ControllerBase
                                 var dateStr = dateEl.GetString() ?? "";
                                 result.Year = dateStr.Length >= 4 ? dateStr[..4] : dateStr;
                             }
+
+                            if (release.TryGetProperty("media", out var mediaEl) && mediaEl.ValueKind == JsonValueKind.Array)
+                            {
+                                foreach (var media in mediaEl.EnumerateArray())
+                                {
+                                    if (media.TryGetProperty("track-count", out var tcEl) && tcEl.ValueKind == JsonValueKind.Number)
+                                        result.TotalTracks = tcEl.GetInt32();
+                                    if (media.TryGetProperty("track", out var tracks) && tracks.ValueKind == JsonValueKind.Array)
+                                    {
+                                        foreach (var track in tracks.EnumerateArray())
+                                        {
+                                            if (track.TryGetProperty("number", out var numEl))
+                                                result.TrackNumber = numEl.GetString() ?? "";
+                                            break;
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
+
                             break;
+                        }
+                    }
+
+                    if (rec.TryGetProperty("tags", out var tagsEl) && tagsEl.ValueKind == JsonValueKind.Array)
+                    {
+                        int bestCount = -1;
+                        foreach (var tag in tagsEl.EnumerateArray())
+                        {
+                            var count = tag.TryGetProperty("count", out var cEl) && cEl.ValueKind == JsonValueKind.Number ? cEl.GetInt32() : 0;
+                            if (count > bestCount && tag.TryGetProperty("name", out var tagName))
+                            {
+                                result.Genre = tagName.GetString() ?? "";
+                                bestCount = count;
+                            }
                         }
                     }
 
