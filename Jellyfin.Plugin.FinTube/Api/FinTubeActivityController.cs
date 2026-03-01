@@ -58,6 +58,7 @@ public class FinTubeActivityController : ControllerBase
             public string metadataArtistMbid { get; set; } = "";
             public string metadataReleaseMbid { get; set; } = "";
             public string metadataRecordingMbid { get; set; } = "";
+            public string playlistItems { get; set; } = "";
         }
 
         [HttpPost("submit_dl")]
@@ -270,6 +271,8 @@ public class FinTubeActivityController : ControllerBase
             {
                 args.Add("--yes-playlist");
                 args.Add("--ignore-errors");
+                if (!string.IsNullOrWhiteSpace(data.playlistItems))
+                    args.Add($"--playlist-items {data.playlistItems}");
                 outputTemplate = System.IO.Path.Combine(targetPath, "%(playlist_title)s", "%(title)s.%(ext)s");
             }
             else
@@ -370,11 +373,19 @@ public class FinTubeActivityController : ControllerBase
                 || query.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool IsMixOrRadioUrl(string query)
+        {
+            if (!IsYouTubeUrl(query)) return false;
+            return System.Text.RegularExpressions.Regex.IsMatch(
+                query, @"[?&]list=RD", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+
         private static bool IsPlaylistUrl(string query)
         {
-            return IsYouTubeUrl(query)
-                && (query.Contains("list=", StringComparison.OrdinalIgnoreCase)
-                    || query.Contains("/playlist", StringComparison.OrdinalIgnoreCase));
+            if (!IsYouTubeUrl(query)) return false;
+            if (IsMixOrRadioUrl(query)) return false;
+            return query.Contains("list=", StringComparison.OrdinalIgnoreCase)
+                || query.Contains("/playlist", StringComparison.OrdinalIgnoreCase);
         }
 
         private YouTubeSearchResult ParseVideoJson(JsonElement root)
@@ -417,8 +428,12 @@ public class FinTubeActivityController : ControllerBase
                 if (limit < 1) limit = 1;
                 if (limit > 30) limit = 30;
 
+                bool isMix = IsMixOrRadioUrl(query);
                 bool isPlaylist = IsPlaylistUrl(query);
                 bool isUrl = IsYouTubeUrl(query);
+
+                if (isMix)
+                    _logger.LogInformation("Mix/Radio URL detected, treating as single video: {query}", query);
 
                 string args;
                 if (isPlaylist)
