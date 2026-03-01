@@ -147,6 +147,44 @@ public static class MusicPostProcessor
         tag.SetField(fieldName, value);
     }
 
+    public static string? OrganizeFile(string filePath, MusicMetadata metadata, ILogger logger)
+    {
+        var artist = SanitizePathSegment(metadata.Artist);
+        if (string.IsNullOrWhiteSpace(artist)) return null;
+
+        var baseDir = Path.GetDirectoryName(filePath)!;
+        var album = SanitizePathSegment(metadata.Album);
+
+        var subDir = !string.IsNullOrWhiteSpace(album)
+            ? Path.Combine(baseDir, artist, album)
+            : Path.Combine(baseDir, artist);
+        Directory.CreateDirectory(subDir);
+
+        var ext = Path.GetExtension(filePath);
+        var title = !string.IsNullOrWhiteSpace(metadata.Title)
+            ? SanitizePathSegment(metadata.Title)
+            : Path.GetFileNameWithoutExtension(filePath);
+        var fileName = !string.IsNullOrWhiteSpace(metadata.TrackNumber)
+            ? $"{metadata.TrackNumber}. {title}{ext}"
+            : $"{title}{ext}";
+
+        var destPath = Path.Combine(subDir, fileName);
+        if (string.Equals(destPath, filePath, StringComparison.OrdinalIgnoreCase))
+            return filePath;
+
+        System.IO.File.Move(filePath, destPath, overwrite: false);
+        logger.LogInformation("PostProcessor: moved '{src}' -> '{dest}'", filePath, destPath);
+        return destPath;
+    }
+
+    private static string SanitizePathSegment(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "";
+        var invalid = Path.GetInvalidFileNameChars();
+        var sanitized = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
+        return sanitized.Trim().TrimEnd('.');
+    }
+
     private static async Task ReplaceCoverArt(TagLib.File tagFile, string releaseMbid, ILogger logger)
     {
         if (string.IsNullOrWhiteSpace(releaseMbid))

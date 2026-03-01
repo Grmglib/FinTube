@@ -59,6 +59,7 @@ public class FinTubeActivityController : ControllerBase
             public string metadataReleaseMbid { get; set; } = "";
             public string metadataRecordingMbid { get; set; } = "";
             public string playlistItems { get; set; } = "";
+            public string playlistTrackMetadata { get; set; } = "";
         }
 
         [HttpPost("submit_dl")]
@@ -116,12 +117,28 @@ public class FinTubeActivityController : ControllerBase
                     };
                 }
 
+                List<Models.MusicMetadata?>? playlistMetadata = null;
+                if (data.isPlaylist && data.audioonly && config.enableCoverArtReplacement
+                    && !string.IsNullOrWhiteSpace(data.playlistTrackMetadata))
+                {
+                    try
+                    {
+                        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                        playlistMetadata = JsonSerializer.Deserialize<List<Models.MusicMetadata?>>(data.playlistTrackMetadata, options);
+                    }
+                    catch (JsonException ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to deserialize playlistTrackMetadata, skipping post-processing");
+                    }
+                }
+
                 var taskId = DownloadTaskManager.StartTask(
                     config.exec_YTDL, args, _logger,
                     isPlaylist: data.isPlaylist,
                     retryArgs: retryArgs,
                     onCompleted: onCompleted,
-                    musicMetadata: musicMetadata);
+                    musicMetadata: musicMetadata,
+                    playlistMetadata: playlistMetadata);
 
                 return Ok(new Dictionary<string, object>
                 {
@@ -273,7 +290,9 @@ public class FinTubeActivityController : ControllerBase
                 args.Add("--ignore-errors");
                 if (!string.IsNullOrWhiteSpace(data.playlistItems))
                     args.Add($"--playlist-items {data.playlistItems}");
-                outputTemplate = System.IO.Path.Combine(targetPath, "%(playlist_title)s", "%(title)s.%(ext)s");
+                outputTemplate = data.audioonly
+                    ? System.IO.Path.Combine(targetPath, "%(title)s.%(ext)s")
+                    : System.IO.Path.Combine(targetPath, "%(playlist_title)s", "%(title)s.%(ext)s");
             }
             else
             {
@@ -564,7 +583,8 @@ public class FinTubeActivityController : ControllerBase
                 { "failedCount", task.FailedCount },
                 { "failedVideos", task.FailedVideos },
                 { "libraryScanQueued", task.LibraryScanQueued },
-                { "postProcessed", task.PostProcessed }
+                { "postProcessed", task.PostProcessed },
+                { "postProcessedCount", task.PostProcessedCount }
             };
 
             return Ok(response);

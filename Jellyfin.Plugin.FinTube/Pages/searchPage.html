@@ -251,12 +251,45 @@
 				</div>
 			</div>
 
+		<!-- MusicBrainz Batch Review Modal (playlist) -->
+		<div id="mb-batch-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:10001;background:rgba(0,0,0,.7);justify-content:center;align-items:center;">
+			<div style="background:#1c1c1e;color:#fff;border-radius:10px;width:94%;max-width:650px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.5);">
+				<div style="padding:16px 20px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+					<div style="display:flex;align-items:center;gap:10px;">
+						<span class="material-icons" style="color:#7c4dff;font-size:1.4em;">library_music</span>
+						<h3 style="margin:0;font-size:1.1em;">MusicBrainz - Identify Playlist Tracks</h3>
+					</div>
+					<button type="button" onclick="mbBatchCancel()" style="background:none;border:none;color:#aaa;font-size:1.5em;cursor:pointer;padding:0 4px;">&times;</button>
+				</div>
+				<div id="mb-batch-progress" style="padding:10px 20px;border-bottom:1px solid #333;flex-shrink:0;">
+					<div style="display:flex;align-items:center;gap:8px;">
+						<span class="material-icons" style="font-size:1.2em;color:#8ab4f8;animation:fintube-spin 1s linear infinite;">sync</span>
+						<span id="mb-batch-progress-text" style="font-size:.85em;color:#aaa;">Searching MusicBrainz...</span>
+					</div>
+					<div style="margin-top:6px;background:#333;border-radius:4px;height:4px;overflow:hidden;">
+						<div id="mb-batch-progress-bar" style="background:#7c4dff;height:100%;width:0%;transition:width .3s;"></div>
+					</div>
+				</div>
+				<div id="mb-batch-list" style="flex:1;overflow-y:auto;padding:8px 12px;"></div>
+				<div style="padding:12px 20px;border-top:1px solid #333;display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex-shrink:0;">
+					<span id="mb-batch-match-count" style="font-size:.85em;color:#aaa;margin-right:auto;">0 of 0 matched</span>
+					<button type="button" onclick="mbBatchCancel()" style="background:#333;color:#fff;border:none;border-radius:4px;padding:8px 14px;cursor:pointer;font-size:.85em;">Cancel</button>
+					<button type="button" onclick="mbBatchSkipAll()" style="background:#444;color:#fff;border:none;border-radius:4px;padding:8px 14px;cursor:pointer;font-size:.85em;">Skip (no metadata)</button>
+					<button type="button" id="mb-batch-confirm-btn" onclick="mbBatchConfirm()" style="background:#7c4dff;color:#fff;border:none;border-radius:4px;padding:8px 14px;cursor:pointer;font-size:.85em;">Confirm &amp; Download</button>
+				</div>
+			</div>
+		</div>
+
 		<script type="text/javascript">
 		var fintubePluginId = 'd20aa9ed-eafc-4578-b320-4e3b7093129c';
 		var fintubeConfig = null;
 		var fintubeSearchResults = [];
 		var mbPendingDownload = null;
 		var mbSelectedIdx = 0;
+		var mbBatchTracks = [];
+		var mbBatchPending = null;
+		var mbBatchSearching = false;
+		var mbBatchAlbumGroups = null;
 
 		// ============================================================
 		// Utility
@@ -623,11 +656,16 @@
 				var url = fintubeUrl('fintube/task_status', { id: taskId });
 				ApiClient.ajax({ type: 'GET', url: url, dataType: 'json' })
 				.then(function(task) {
-				var postNote = task.postProcessed
-					? '<div style="margin-top:6px;font-size:.8em;color:#ce93d8;">' +
-						'<span class="material-icons" style="font-size:.9em;vertical-align:middle;">album</span> Cover art &amp; metadata updated' +
-					  '</div>'
-					: '';
+			var postNote = '';
+			if (task.postProcessed && task.postProcessedCount > 1) {
+				postNote = '<div style="margin-top:6px;font-size:.8em;color:#ce93d8;">' +
+					'<span class="material-icons" style="font-size:.9em;vertical-align:middle;">album</span> Cover art &amp; metadata updated (' + task.postProcessedCount + ' tracks)' +
+				  '</div>';
+			} else if (task.postProcessed) {
+				postNote = '<div style="margin-top:6px;font-size:.8em;color:#ce93d8;">' +
+					'<span class="material-icons" style="font-size:.9em;vertical-align:middle;">album</span> Cover art &amp; metadata updated' +
+				  '</div>';
+			}
 				var scanNote = task.libraryScanQueued
 					? '<div style="margin-top:6px;font-size:.8em;color:#8ab4f8;">' +
 						'<span class="material-icons" style="font-size:.9em;vertical-align:middle;">refresh</span> Library scan triggered' +
@@ -1063,6 +1101,24 @@
 		if (videoBtn) videoBtn.setAttribute('disabled', 'true');
 		if (audioBtn) audioBtn.setAttribute('disabled', 'true');
 
+		if (audioOnly && fintubeConfig.enableMusicOrganizer !== false) {
+			var selectedIndices = selectedItems.split(',');
+			var selectedTracks = [];
+			for (var si = 0; si < selectedIndices.length; si++) {
+				var arrIdx = parseInt(selectedIndices[si]) - 1;
+				if (arrIdx >= 0 && arrIdx < fintubeSearchResults.length) {
+					selectedTracks.push({
+						title: fintubeSearchResults[arrIdx].title || '',
+						channel: fintubeSearchResults[arrIdx].channel || '',
+						thumbnail: fintubeSearchResults[arrIdx].thumbnail || '',
+						plIdx: selectedIndices[si]
+					});
+				}
+			}
+			openBatchReviewModal(playlistUrl, selectedItems, selectedTracks);
+			return;
+		}
+
 		var checkboxes = document.querySelectorAll('.pl-item-cb');
 		var allSelected = selectedItems.split(',').length === checkboxes.length;
 
@@ -1082,6 +1138,520 @@
 			preset: plPreset,
 			isPlaylist: true,
 			playlistItems: allSelected ? '' : selectedItems
+		};
+		if (plPreset === 'custom') Object.assign(payload, getCustomFields());
+
+		var url = fintubeUrl('fintube/submit_dl', {});
+		ApiClient.ajax({ type: 'POST', url: url, dataType: 'json', data: JSON.stringify(payload), contentType: 'application/json' })
+		.then(function(result) {
+			if (result && result.taskId) {
+				startPolling(result.taskId, statusEl,
+					function() {},
+					function() {
+						if (videoBtn) videoBtn.removeAttribute('disabled');
+						if (audioBtn) audioBtn.removeAttribute('disabled');
+					}
+				);
+			}
+		})
+		.catch(function(err) {
+			if (videoBtn) videoBtn.removeAttribute('disabled');
+			if (audioBtn) audioBtn.removeAttribute('disabled');
+			var errorMsg = 'Playlist download failed';
+			if (err && err.responseJSON && err.responseJSON.message) errorMsg = err.responseJSON.message;
+			else if (err && err.statusText) errorMsg = err.statusText;
+			else if (err && err.message) errorMsg = err.message;
+			statusEl.innerHTML =
+				'<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;background:rgba(244,67,54,0.1);border:1px solid #f44336;">' +
+					'<span class="material-icons" style="color:#f44336;">error</span>' +
+					'<span style="color:#f44336;">' + errorMsg + '</span>' +
+				'</div>';
+		});
+	}
+
+	// ============================================================
+	// MusicBrainz Batch Review (playlist)
+	// ============================================================
+
+	function groupBatchByAlbum() {
+		var albumMap = {};
+		var ungrouped = [];
+
+		for (var i = 0; i < mbBatchTracks.length; i++) {
+			var t = mbBatchTracks[i];
+			var mbid = t.metadata && t.metadata.releaseMbid ? t.metadata.releaseMbid : null;
+			if (mbid) {
+				if (!albumMap[mbid]) {
+					albumMap[mbid] = {
+						releaseMbid: mbid,
+						albumName: t.metadata.album || '',
+						artist: t.metadata.artist || '',
+						year: t.metadata.year || '',
+						indices: []
+					};
+				}
+				albumMap[mbid].indices.push(i);
+			} else {
+				ungrouped.push(i);
+			}
+		}
+
+		var groups = [];
+		var keys = Object.keys(albumMap);
+		for (var k = 0; k < keys.length; k++) {
+			var g = albumMap[keys[k]];
+			if (g.indices.length >= 2) {
+				groups.push(g);
+			} else {
+				ungrouped.push(g.indices[0]);
+			}
+		}
+
+		groups.sort(function(a, b) { return a.indices[0] - b.indices[0]; });
+		ungrouped.sort(function(a, b) { return a - b; });
+
+		if (ungrouped.length > 0) {
+			groups.push({ releaseMbid: null, albumName: null, artist: null, year: null, indices: ungrouped });
+		}
+
+		mbBatchAlbumGroups = groups;
+	}
+
+	function renderBatchTrackItem(i) {
+		var t = mbBatchTracks[i];
+		var statusHtml = '';
+		if (t.searching) {
+			statusHtml = '<span class="material-icons" style="font-size:1em;color:#8ab4f8;animation:fintube-spin 1s linear infinite;">sync</span>';
+		} else if (t.mbResults && t.mbResults.length > 0 && t.included) {
+			var sel = t.mbResults[t.selectedIdx || 0];
+			statusHtml =
+				'<div style="font-size:.78em;color:#b9f6ca;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+					(sel.title || '') + ' - ' + (sel.artist || '') +
+					(sel.album ? ' (' + sel.album + ')' : '') +
+					' <span style="color:#666;">' + sel.score + '%</span>' +
+				'</div>';
+		} else if (t.mbResults && t.mbResults.length === 0) {
+			statusHtml = '<span style="font-size:.78em;color:#888;">No match found</span>';
+		}
+
+		var expandIcon = t.expanded ? 'expand_less' : 'expand_more';
+		var includedChecked = t.included ? 'checked' : '';
+
+		return '<div style="border:1px solid #333;border-radius:6px;margin-bottom:6px;overflow:hidden;">' +
+				'<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;" onclick="toggleBatchTrackExpand(' + i + ')">' +
+					'<input type="checkbox" ' + includedChecked + ' onclick="event.stopPropagation();toggleBatchTrackInclude(' + i + ',this.checked)" ' +
+						'style="width:16px;height:16px;accent-color:#7c4dff;flex-shrink:0;cursor:pointer;" />' +
+					'<img src="' + (t.thumbnail || '') + '" style="width:48px;height:27px;object-fit:cover;border-radius:3px;background:#000;flex-shrink:0;" />' +
+					'<div style="flex:1;min-width:0;">' +
+						'<div style="font-size:.82em;color:#e0e0e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (t.videoTitle || 'Untitled') + '</div>' +
+						statusHtml +
+					'</div>' +
+					'<span class="material-icons" style="color:#666;font-size:1.2em;flex-shrink:0;">' + expandIcon + '</span>' +
+				'</div>' +
+				'<div id="mb-batch-expand-' + i + '" style="display:' + (t.expanded ? 'block' : 'none') + ';padding:8px 12px;border-top:1px solid #333;background:#151518;">' +
+					renderBatchTrackExpanded(i) +
+				'</div>' +
+			'</div>';
+	}
+
+	function renderMbBatchList() {
+		var listEl = document.getElementById('mb-batch-list');
+		var html = '';
+
+		if (mbBatchAlbumGroups && mbBatchAlbumGroups.length > 0) {
+			for (var g = 0; g < mbBatchAlbumGroups.length; g++) {
+				var group = mbBatchAlbumGroups[g];
+				if (group.releaseMbid) {
+					html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;margin-bottom:4px;margin-top:' + (g > 0 ? '12px' : '0') + ';background:rgba(124,77,255,0.08);border-radius:6px;border:1px solid rgba(124,77,255,0.2);">' +
+						'<span class="material-icons" style="font-size:1.2em;color:#7c4dff;">album</span>' +
+						'<div style="flex:1;min-width:0;">' +
+							'<div style="font-size:.85em;color:#ce93d8;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+								(group.albumName || 'Unknown Album') +
+							'</div>' +
+							'<div style="font-size:.72em;color:#888;">' +
+								(group.artist || '') + (group.year ? ' \u00b7 ' + group.year : '') +
+							'</div>' +
+						'</div>' +
+						'<div style="font-size:.72em;color:#888;flex-shrink:0;">' + group.indices.length + ' tracks</div>' +
+					'</div>';
+				} else if (mbBatchAlbumGroups.length > 1) {
+					html += '<div style="padding:6px 12px;margin-bottom:4px;margin-top:' + (g > 0 ? '12px' : '0') + ';font-size:.78em;color:#888;">' +
+						'<span class="material-icons" style="font-size:1em;vertical-align:middle;margin-right:4px;">library_music</span>Other tracks' +
+					'</div>';
+				}
+
+				for (var j = 0; j < group.indices.length; j++) {
+					html += renderBatchTrackItem(group.indices[j]);
+				}
+			}
+		} else {
+			for (var i = 0; i < mbBatchTracks.length; i++) {
+				html += renderBatchTrackItem(i);
+			}
+		}
+
+		listEl.innerHTML = html;
+		updateBatchMatchCount();
+	}
+
+	function renderBatchTrackExpanded(idx) {
+		var t = mbBatchTracks[idx];
+		if (t.searching) {
+			return '<div style="padding:12px;text-align:center;"><span class="material-icons" style="color:#8ab4f8;animation:fintube-spin 1s linear infinite;">sync</span><div style="color:#aaa;font-size:.8em;margin-top:4px;">Searching...</div></div>';
+		}
+
+		var html = '';
+		html += '<div style="display:flex;gap:6px;margin-bottom:8px;">' +
+			'<input id="mb-batch-query-' + idx + '" class="emby-input" type="text" value="' + (t.searchQuery || '').replace(/"/g, '&quot;') + '" placeholder="Refine search..." style="flex:1;font-size:.82em;padding:4px 8px;" ' +
+				'onkeydown="if(event.key===\'Enter\'){event.preventDefault();mbBatchManualSearch(' + idx + ')}" />' +
+			'<button type="button" onclick="mbBatchManualSearch(' + idx + ')" style="background:#7c4dff;color:#fff;border:none;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:.78em;white-space:nowrap;">' +
+				'<span class="material-icons" style="font-size:1em;vertical-align:middle;">search</span> Search</button>' +
+			'</div>';
+
+		if (t.mbResults && t.mbResults.length > 0) {
+			html += '<div style="max-height:150px;overflow-y:auto;margin-bottom:8px;">';
+			for (var j = 0; j < t.mbResults.length; j++) {
+				var r = t.mbResults[j];
+				var selected = (j === (t.selectedIdx || 0));
+				var borderStyle = selected ? '1px solid #7c4dff' : '1px solid #333';
+				var bgStyle = selected ? 'rgba(124,77,255,0.1)' : 'none';
+				var coverUrl = r.releaseMbid ? 'https://coverartarchive.org/release/' + r.releaseMbid + '/front-250' : '';
+				var coverHtml = coverUrl
+					? '<img src="' + coverUrl + '" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';" style="width:32px;height:32px;border-radius:3px;object-fit:cover;flex-shrink:0;" />' +
+						'<span class="material-icons" style="display:none;width:32px;height:32px;border-radius:3px;background:#333;color:#666;font-size:1em;align-items:center;justify-content:center;flex-shrink:0;">album</span>'
+					: '<span class="material-icons" style="display:flex;width:32px;height:32px;border-radius:3px;background:#333;color:#666;font-size:1em;align-items:center;justify-content:center;flex-shrink:0;">album</span>';
+
+				html += '<div onclick="selectBatchResult(' + idx + ',' + j + ')" style="padding:4px 6px;cursor:pointer;border-radius:4px;border:' + borderStyle + ';background:' + bgStyle + ';margin-bottom:3px;display:flex;gap:8px;align-items:center;">' +
+					coverHtml +
+					'<div style="min-width:0;flex:1;">' +
+						'<div style="font-size:.78em;color:#e0e0e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (r.title || '') + '</div>' +
+						'<div style="font-size:.72em;color:#aaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (r.artist || '') + ' - ' + (r.album || '') + (r.year ? ' (' + r.year + ')' : '') + '</div>' +
+					'</div>' +
+					'<div style="flex-shrink:0;font-size:.7em;color:#666;">' + r.score + '%</div>' +
+				'</div>';
+			}
+			html += '</div>';
+
+			var sel = t.mbResults[t.selectedIdx || 0];
+			var meta = t.metadata || {};
+			html += '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+				'<div style="flex:1;min-width:100px;">' +
+					'<label style="font-size:.72em;color:#888;">Title</label>' +
+					'<input id="mb-batch-title-' + idx + '" class="emby-input" type="text" value="' + ((meta.title || sel.title || '')).replace(/"/g, '&quot;') + '" style="font-size:.8em;padding:3px 6px;" onchange="updateBatchTrackMeta(' + idx + ')" />' +
+				'</div>' +
+				'<div style="flex:1;min-width:100px;">' +
+					'<label style="font-size:.72em;color:#888;">Artist</label>' +
+					'<input id="mb-batch-artist-' + idx + '" class="emby-input" type="text" value="' + ((meta.artist || sel.artist || '')).replace(/"/g, '&quot;') + '" style="font-size:.8em;padding:3px 6px;" onchange="updateBatchTrackMeta(' + idx + ')" />' +
+				'</div>' +
+			'</div>' +
+			'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">' +
+				'<div style="flex:1;min-width:100px;">' +
+					'<label style="font-size:.72em;color:#888;">Album</label>' +
+					'<input id="mb-batch-album-' + idx + '" class="emby-input" type="text" value="' + ((meta.album || sel.album || '')).replace(/"/g, '&quot;') + '" style="font-size:.8em;padding:3px 6px;" onchange="updateBatchTrackMeta(' + idx + ')" />' +
+				'</div>' +
+				'<div style="width:70px;">' +
+					'<label style="font-size:.72em;color:#888;">Year</label>' +
+					'<input id="mb-batch-year-' + idx + '" class="emby-input" type="text" value="' + ((meta.year || sel.year || '')).replace(/"/g, '&quot;') + '" maxlength="4" style="font-size:.8em;padding:3px 6px;" onchange="updateBatchTrackMeta(' + idx + ')" />' +
+				'</div>' +
+			'</div>';
+		} else {
+			html += '<div style="text-align:center;padding:8px;color:#888;font-size:.8em;"><span class="material-icons" style="font-size:1.3em;vertical-align:middle;color:#555;">search_off</span> No match found. Try a manual search above.</div>';
+		}
+
+		return html;
+	}
+
+	function toggleBatchTrackExpand(idx) {
+		mbBatchTracks[idx].expanded = !mbBatchTracks[idx].expanded;
+		var expandEl = document.getElementById('mb-batch-expand-' + idx);
+		if (expandEl) {
+			expandEl.style.display = mbBatchTracks[idx].expanded ? 'block' : 'none';
+			expandEl.innerHTML = renderBatchTrackExpanded(idx);
+		}
+		renderMbBatchList();
+	}
+
+	function toggleBatchTrackInclude(idx, checked) {
+		mbBatchTracks[idx].included = checked;
+		updateBatchMatchCount();
+	}
+
+	function selectBatchResult(trackIdx, resultIdx) {
+		var t = mbBatchTracks[trackIdx];
+		t.selectedIdx = resultIdx;
+		var r = t.mbResults[resultIdx];
+		var isSingle = !r.album || r.totalTracks <= 1;
+		t.metadata = {
+			title: r.title || '',
+			artist: r.artist || '',
+			album: isSingle ? (r.title || '') : (r.album || ''),
+			year: r.year || '',
+			trackNumber: isSingle ? '1' : (r.trackNumber || ''),
+			genre: r.genre || '',
+			artistMbid: r.artistMbid || '',
+			releaseMbid: r.releaseMbid || '',
+			recordingMbid: r.recordingMbid || ''
+		};
+		t.included = true;
+		groupBatchByAlbum();
+		renderMbBatchList();
+	}
+
+	function updateBatchTrackMeta(idx) {
+		var t = mbBatchTracks[idx];
+		if (!t.metadata) t.metadata = {};
+		var titleEl = document.getElementById('mb-batch-title-' + idx);
+		var artistEl = document.getElementById('mb-batch-artist-' + idx);
+		var albumEl = document.getElementById('mb-batch-album-' + idx);
+		var yearEl = document.getElementById('mb-batch-year-' + idx);
+		if (titleEl) t.metadata.title = titleEl.value.trim();
+		if (artistEl) t.metadata.artist = artistEl.value.trim();
+		if (albumEl) t.metadata.album = albumEl.value.trim();
+		if (yearEl) t.metadata.year = yearEl.value.trim();
+	}
+
+	function updateBatchMatchCount() {
+		var total = mbBatchTracks.length;
+		var matched = 0;
+		var included = 0;
+		for (var i = 0; i < total; i++) {
+			if (mbBatchTracks[i].mbResults && mbBatchTracks[i].mbResults.length > 0) matched++;
+			if (mbBatchTracks[i].included) included++;
+		}
+		var el = document.getElementById('mb-batch-match-count');
+		if (el) el.textContent = matched + ' of ' + total + ' matched, ' + included + ' included';
+	}
+
+	function mbBatchManualSearch(idx) {
+		var queryEl = document.getElementById('mb-batch-query-' + idx);
+		var query = queryEl ? queryEl.value.trim() : '';
+		if (!query) return;
+
+		mbBatchTracks[idx].searching = true;
+		mbBatchTracks[idx].searchQuery = query;
+		renderMbBatchList();
+
+		var mbUrl = fintubeUrl('fintube/musicbrainz_search', { title: query });
+		ApiClient.ajax({ type: 'GET', url: mbUrl, dataType: 'json' })
+		.then(function(data) {
+			mbBatchTracks[idx].searching = false;
+			mbBatchTracks[idx].mbResults = data.results || [];
+			if (mbBatchTracks[idx].mbResults.length > 0) {
+				mbBatchTracks[idx].selectedIdx = 0;
+				var r = mbBatchTracks[idx].mbResults[0];
+				var isSingle = !r.album || r.totalTracks <= 1;
+				mbBatchTracks[idx].metadata = {
+					title: r.title || '', artist: r.artist || '',
+					album: isSingle ? (r.title || '') : (r.album || ''),
+					year: r.year || '',
+					trackNumber: isSingle ? '1' : (r.trackNumber || ''),
+					genre: r.genre || '', artistMbid: r.artistMbid || '',
+					releaseMbid: r.releaseMbid || '', recordingMbid: r.recordingMbid || ''
+				};
+				mbBatchTracks[idx].included = true;
+			} else {
+				mbBatchTracks[idx].included = false;
+			}
+			mbBatchTracks[idx].expanded = true;
+			groupBatchByAlbum();
+			renderMbBatchList();
+		})
+		.catch(function() {
+			mbBatchTracks[idx].searching = false;
+			mbBatchTracks[idx].mbResults = [];
+			mbBatchTracks[idx].expanded = true;
+			groupBatchByAlbum();
+			renderMbBatchList();
+		});
+	}
+
+	function startBatchMusicBrainzSearch(tracks) {
+		mbBatchSearching = true;
+		var total = tracks.length;
+		var current = 0;
+
+		function searchNext() {
+			if (current >= total) {
+				mbBatchSearching = false;
+				var progEl = document.getElementById('mb-batch-progress');
+				if (progEl) progEl.style.display = 'none';
+				groupBatchByAlbum();
+				renderMbBatchList();
+				return;
+			}
+
+			var idx = current;
+			var t = mbBatchTracks[idx];
+			t.searching = true;
+
+			var progText = document.getElementById('mb-batch-progress-text');
+			var progBar = document.getElementById('mb-batch-progress-bar');
+			if (progText) progText.textContent = 'Searching track ' + (idx + 1) + ' of ' + total + '...';
+			if (progBar) progBar.style.width = Math.round(((idx + 1) / total) * 100) + '%';
+
+			renderMbBatchList();
+
+			var title = t.videoTitle || '';
+			var artist = t.videoChannel || '';
+			if (!title) {
+				t.searching = false;
+				t.mbResults = [];
+				current++;
+				setTimeout(searchNext, 100);
+				return;
+			}
+
+			var mbUrl = fintubeUrl('fintube/musicbrainz_search', { title: title, artist: artist });
+			ApiClient.ajax({ type: 'GET', url: mbUrl, dataType: 'json' })
+			.then(function(data) {
+				t.searching = false;
+				t.mbResults = data.results || [];
+				t.searchQuery = (data.parsedArtist || artist || '') + ' - ' + (data.parsedTitle || title || '');
+				if (t.mbResults.length > 0) {
+					t.selectedIdx = 0;
+					var r = t.mbResults[0];
+					var isSingle = !r.album || r.totalTracks <= 1;
+					t.metadata = {
+						title: r.title || '', artist: r.artist || '',
+						album: isSingle ? (r.title || '') : (r.album || ''),
+						year: r.year || '',
+						trackNumber: isSingle ? '1' : (r.trackNumber || ''),
+						genre: r.genre || '', artistMbid: r.artistMbid || '',
+						releaseMbid: r.releaseMbid || '', recordingMbid: r.recordingMbid || ''
+					};
+					t.included = true;
+				} else {
+					t.included = false;
+				}
+				renderMbBatchList();
+				current++;
+				setTimeout(searchNext, 300);
+			})
+			.catch(function() {
+				t.searching = false;
+				t.mbResults = [];
+				t.included = false;
+				renderMbBatchList();
+				current++;
+				setTimeout(searchNext, 300);
+			});
+		}
+
+		searchNext();
+	}
+
+	function openBatchReviewModal(playlistUrl, selectedItems, selectedTracks) {
+		mbBatchTracks = [];
+		mbBatchAlbumGroups = null;
+		mbBatchPending = { playlistUrl: playlistUrl, selectedItems: selectedItems };
+
+		for (var i = 0; i < selectedTracks.length; i++) {
+			mbBatchTracks.push({
+				videoTitle: selectedTracks[i].title || '',
+				videoChannel: selectedTracks[i].channel || '',
+				thumbnail: selectedTracks[i].thumbnail || '',
+				plIdx: selectedTracks[i].plIdx,
+				searching: false,
+				mbResults: null,
+				selectedIdx: 0,
+				metadata: null,
+				included: false,
+				expanded: false,
+				searchQuery: ''
+			});
+		}
+
+		document.getElementById('mb-batch-progress').style.display = 'block';
+		document.getElementById('mb-batch-progress-bar').style.width = '0%';
+		renderMbBatchList();
+		document.getElementById('mb-batch-modal').style.display = 'flex';
+
+		startBatchMusicBrainzSearch(mbBatchTracks);
+	}
+
+	function mbBatchCancel() {
+		document.getElementById('mb-batch-modal').style.display = 'none';
+		mbBatchTracks = [];
+		mbBatchAlbumGroups = null;
+		mbBatchPending = null;
+		mbBatchSearching = false;
+		var videoBtn = document.getElementById('playlist-dl-video-btn');
+		var audioBtn = document.getElementById('playlist-dl-audio-btn');
+		if (videoBtn) videoBtn.removeAttribute('disabled');
+		if (audioBtn) audioBtn.removeAttribute('disabled');
+	}
+
+	function mbBatchSkipAll() {
+		document.getElementById('mb-batch-modal').style.display = 'none';
+		if (!mbBatchPending) return;
+		executeBatchPlaylistDownload(mbBatchPending.playlistUrl, mbBatchPending.selectedItems, null);
+		mbBatchPending = null;
+		mbBatchTracks = [];
+		mbBatchAlbumGroups = null;
+	}
+
+	function mbBatchConfirm() {
+		document.getElementById('mb-batch-modal').style.display = 'none';
+		if (!mbBatchPending) return;
+
+		var metadataArray = [];
+		for (var i = 0; i < mbBatchTracks.length; i++) {
+			var t = mbBatchTracks[i];
+			if (t.included && t.metadata && t.metadata.releaseMbid) {
+				metadataArray.push({
+					Title: t.metadata.title || '',
+					Artist: t.metadata.artist || '',
+					Album: t.metadata.album || '',
+					Year: t.metadata.year || '',
+					TrackNumber: t.metadata.trackNumber || '',
+					Genre: t.metadata.genre || '',
+					ArtistMbid: t.metadata.artistMbid || '',
+					ReleaseMbid: t.metadata.releaseMbid || '',
+					RecordingMbid: t.metadata.recordingMbid || ''
+				});
+			} else {
+				metadataArray.push(null);
+			}
+		}
+
+		executeBatchPlaylistDownload(mbBatchPending.playlistUrl, mbBatchPending.selectedItems, metadataArray);
+		mbBatchPending = null;
+		mbBatchTracks = [];
+	}
+
+	function executeBatchPlaylistDownload(playlistUrl, selectedItems, metadataArray) {
+		var statusEl = document.getElementById('playlist-dl-status');
+		var videoBtn = document.getElementById('playlist-dl-video-btn');
+		var audioBtn = document.getElementById('playlist-dl-audio-btn');
+
+		var targetPath = document.getElementById('fintube-audiopath').value || (fintubeConfig ? fintubeConfig.defaultAudioPath : '');
+		if (!targetPath) {
+			statusEl.innerHTML = '<span style="color:#f44336;">Default audio path not configured.</span>';
+			if (videoBtn) videoBtn.removeAttribute('disabled');
+			if (audioBtn) audioBtn.removeAttribute('disabled');
+			return;
+		}
+
+		var checkboxes = document.querySelectorAll('.pl-item-cb');
+		var allSelected = selectedItems.split(',').length === checkboxes.length;
+
+		statusEl.innerHTML =
+			'<div style="display:flex;align-items:center;gap:8px;">' +
+				'<span class="material-icons" style="color:#8ab4f8;animation:fintube-spin 1s linear infinite;">sync</span>' +
+				'<span style="color:#aaa;">Starting playlist download (' + selectedItems.split(',').length + ' tracks)...</span>' +
+			'</div>';
+
+		var plPreset = document.getElementById('fintube-preset').value || 'balanced';
+		var payload = {
+			ytid: playlistUrl,
+			targetlibrary: targetPath,
+			targetfolder: '',
+			targetfilename: '',
+			audioonly: true,
+			preset: plPreset,
+			isPlaylist: true,
+			playlistItems: allSelected ? '' : selectedItems,
+			playlistTrackMetadata: metadataArray ? JSON.stringify(metadataArray) : ''
 		};
 		if (plPreset === 'custom') Object.assign(payload, getCustomFields());
 

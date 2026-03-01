@@ -23,7 +23,8 @@ public static class DownloadTaskManager
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public static string StartTask(string executable, string args, ILogger logger, bool isPlaylist,
-        string? retryArgs = null, Action? onCompleted = null, MusicMetadata? musicMetadata = null)
+        string? retryArgs = null, Action? onCompleted = null, MusicMetadata? musicMetadata = null,
+        List<MusicMetadata?>? playlistMetadata = null)
     {
         CleanupOldTasks();
 
@@ -38,13 +39,14 @@ public static class DownloadTaskManager
 
         _tasks[taskId] = taskInfo;
 
-        _ = Task.Run(() => RunDownload(taskId, executable, args, logger, retryArgs, onCompleted, musicMetadata));
+        _ = Task.Run(() => RunDownload(taskId, executable, args, logger, retryArgs, onCompleted, musicMetadata, playlistMetadata));
 
         return taskId;
     }
 
     private static async Task RunDownload(string taskId, string executable, string args, ILogger logger,
-        string? retryArgs, Action? onCompleted, MusicMetadata? musicMetadata)
+        string? retryArgs, Action? onCompleted, MusicMetadata? musicMetadata,
+        List<MusicMetadata?>? playlistMetadata)
     {
         if (!_tasks.TryGetValue(taskId, out var taskInfo))
             return;
@@ -93,13 +95,48 @@ public static class DownloadTaskManager
                 logger.LogInformation("Task {taskId} download completed successfully", taskId);
             }
 
-            var outputPath = ParseOutputFilePath(collectedStdout);
-            if (!string.IsNullOrWhiteSpace(outputPath))
-                taskInfo.OutputFilePath = outputPath;
+            var outputPaths = ParseOutputFilePaths(collectedStdout);
 
             if ((finalStatus == DownloadTaskStatus.Completed || finalStatus == DownloadTaskStatus.CompletedWithErrors)
-                && musicMetadata != null && !string.IsNullOrWhiteSpace(taskInfo.OutputFilePath))
+                && taskInfo.IsPlaylist && playlistMetadata != null && outputPaths.Count > 0)
             {
+                var totalToProcess = Math.Min(outputPaths.Count, playlistMetadata.Count);
+                var processedCount = 0;
+                for (int i = 0; i < totalToProcess; i++)
+                {
+                    var meta = playlistMetadata[i];
+                    if (meta == null || string.IsNullOrWhiteSpace(outputPaths[i]))
+                        continue;
+
+                    try
+                    {
+                        taskInfo.Progress = $"Post-processing track {i + 1} of {totalToProcess}...";
+                        logger.LogInformation("Task {taskId}: post-processing track {idx} on '{path}'", taskId, i + 1, outputPaths[i]);
+                        await MusicPostProcessor.ProcessAsync(outputPaths[i], meta, logger);
+                        try
+                        {
+                            MusicPostProcessor.OrganizeFile(outputPaths[i], meta, logger);
+                        }
+                        catch (Exception moveEx)
+                        {
+                            logger.LogWarning(moveEx, "Task {taskId}: failed to organize track {idx}", taskId, i + 1);
+                        }
+                        processedCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Task {taskId}: post-processing failed for track {idx}", taskId, i + 1);
+                    }
+                }
+
+                if (processedCount > 0)
+                    taskInfo.PostProcessed = true;
+                taskInfo.PostProcessedCount = processedCount;
+            }
+            else if ((finalStatus == DownloadTaskStatus.Completed || finalStatus == DownloadTaskStatus.CompletedWithErrors)
+                && !taskInfo.IsPlaylist && musicMetadata != null && outputPaths.Count > 0)
+            {
+                taskInfo.OutputFilePath = outputPaths.Last();
                 try
                 {
                     taskInfo.Progress = "Post-processing metadata...";
@@ -137,17 +174,13 @@ public static class DownloadTaskManager
         taskInfo.CompletedAt = DateTime.UtcNow;
     }
 
-    private static string ParseOutputFilePath(string stdout)
+    private static List<string> ParseOutputFilePaths(string stdout)
     {
-        if (string.IsNullOrWhiteSpace(stdout)) return "";
-        var lines = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        for (int i = lines.Length - 1; i >= 0; i--)
-        {
-            var line = lines[i].Trim();
-            if (!string.IsNullOrWhiteSpace(line))
-                return line;
-        }
-        return "";
+        if (string.IsNullOrWhiteSpace(stdout)) return new List<string>();
+        return stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.Trim())
+            .Where(l => !string.IsNullOrWhiteSpace(l))
+            .ToList();
     }
 
     private static async Task<(int exitCode, string collectedStderr, string collectedStdout)> ExecuteYtdlp(

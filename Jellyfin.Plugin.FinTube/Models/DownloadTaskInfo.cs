@@ -57,4 +57,7 @@ public class DownloadTaskInfo
 
     [JsonPropertyName("postProcessed")]
     public bool PostProcessed { get; set; }
+
+    [JsonPropertyName("postProcessedCount")]
+    public int PostProcessedCount { get; set; }
 }
