@@ -271,6 +271,7 @@ public class FinTubeActivityController : ControllerBase
             }
 
             args.Add($"-o \"{outputTemplate}\"");
+            args.Add("--");
             args.Add(data.ytid);
 
             return string.Join(" ", args);
