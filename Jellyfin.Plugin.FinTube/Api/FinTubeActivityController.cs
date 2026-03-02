@@ -164,8 +164,12 @@ public class FinTubeActivityController : ControllerBase
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
-                CreateNoWindow = true
+                CreateNoWindow = true,
+                StandardOutputEncoding = System.Text.Encoding.Latin1,
+                StandardErrorEncoding = System.Text.Encoding.Latin1
             };
+            startInfo.Environment["PYTHONUTF8"] = "1";
+            startInfo.Environment["PYTHONIOENCODING"] = "utf-8";
 
             var process = new Process() { StartInfo = startInfo };
             process.Start();
@@ -173,7 +177,22 @@ public class FinTubeActivityController : ControllerBase
             var stderrTask = process.StandardError.ReadToEndAsync();
             await Task.WhenAll(stdoutTask, stderrTask);
             await process.WaitForExitAsync();
-            return (process.ExitCode, stdoutTask.Result, stderrTask.Result);
+            return (process.ExitCode, ReencodeIfUtf8(stdoutTask.Result), stderrTask.Result);
+        }
+
+        private static string ReencodeIfUtf8(string latin1)
+        {
+            if (string.IsNullOrEmpty(latin1)) return latin1;
+            var bytes = System.Text.Encoding.Latin1.GetBytes(latin1);
+            try
+            {
+                var utf8Strict = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+                return utf8Strict.GetString(bytes);
+            }
+            catch
+            {
+                return latin1;
+            }
         }
 
         private static bool IsAuthRequiredError(string stderr)

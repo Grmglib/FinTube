@@ -237,8 +237,12 @@ public static class DownloadTaskManager
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            CreateNoWindow = true
+            CreateNoWindow = true,
+            StandardOutputEncoding = System.Text.Encoding.Latin1,
+            StandardErrorEncoding = System.Text.Encoding.Latin1
         };
+        startInfo.Environment["PYTHONUTF8"] = "1";
+        startInfo.Environment["PYTHONIOENCODING"] = "utf-8";
 
         using var process = new Process() { StartInfo = startInfo };
         process.EnableRaisingEvents = true;
@@ -283,7 +287,28 @@ public static class DownloadTaskManager
         var stdout = await process.StandardOutput.ReadToEndAsync();
         await process.WaitForExitAsync();
 
+        stdout = ReencodeIfUtf8(stdout);
+
         return (process.ExitCode, string.Join("\n", stderrLines), stdout);
+    }
+
+    /// <summary>
+    /// Stdout is read as Latin-1 (lossless single-byte). If yt-dlp actually output UTF-8
+    /// (e.g. PYTHONUTF8=1 took effect), re-decode the raw bytes as UTF-8.
+    /// </summary>
+    private static string ReencodeIfUtf8(string latin1)
+    {
+        if (string.IsNullOrEmpty(latin1)) return latin1;
+        var bytes = System.Text.Encoding.Latin1.GetBytes(latin1);
+        try
+        {
+            var utf8Strict = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+            return utf8Strict.GetString(bytes);
+        }
+        catch
+        {
+            return latin1;
+        }
     }
 
     private static bool IsAuthRequired(string stderr)
