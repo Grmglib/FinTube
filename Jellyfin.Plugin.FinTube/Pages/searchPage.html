@@ -290,6 +290,7 @@
 		var mbBatchPending = null;
 		var mbBatchSearching = false;
 		var mbBatchAlbumGroups = null;
+		var mbBatchGroupCollapsed = {};
 
 		// ============================================================
 		// Utility
@@ -1254,6 +1255,11 @@
 			'</div>';
 	}
 
+	function toggleBatchGroupCollapse(releaseMbid) {
+		mbBatchGroupCollapsed[releaseMbid] = !mbBatchGroupCollapsed[releaseMbid];
+		renderMbBatchList();
+	}
+
 	function renderMbBatchList() {
 		var listEl = document.getElementById('mb-batch-list');
 		var html = '';
@@ -1262,8 +1268,13 @@
 			for (var g = 0; g < mbBatchAlbumGroups.length; g++) {
 				var group = mbBatchAlbumGroups[g];
 				if (group.releaseMbid) {
-					html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;margin-bottom:4px;margin-top:' + (g > 0 ? '12px' : '0') + ';background:rgba(124,77,255,0.08);border-radius:6px;border:1px solid rgba(124,77,255,0.2);">' +
-						'<span class="material-icons" style="font-size:1.2em;color:#7c4dff;">album</span>' +
+					var isCollapsed = !!mbBatchGroupCollapsed[group.releaseMbid];
+					var collapseIcon = isCollapsed ? 'expand_more' : 'expand_less';
+					html += '<div onclick="toggleBatchGroupCollapse(\'' + group.releaseMbid + '\')" style="display:flex;align-items:center;gap:8px;padding:8px 12px;margin-bottom:4px;margin-top:' + (g > 0 ? '12px' : '0') + ';background:rgba(124,77,255,0.08);border-radius:6px;border:1px solid rgba(124,77,255,0.2);cursor:pointer;">' +
+						'<img src="https://coverartarchive.org/release/' + group.releaseMbid + '/front-250" ' +
+							'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'inline\'" ' +
+							'style="width:36px;height:36px;object-fit:cover;border-radius:4px;background:#222;flex-shrink:0;" />' +
+						'<span class="material-icons" style="font-size:1.2em;color:#7c4dff;display:none;">album</span>' +
 						'<div style="flex:1;min-width:0;">' +
 							'<div style="font-size:.85em;color:#ce93d8;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
 								(group.albumName || 'Unknown Album') +
@@ -1273,6 +1284,7 @@
 							'</div>' +
 						'</div>' +
 						'<div style="font-size:.72em;color:#888;flex-shrink:0;">' + group.indices.length + ' tracks</div>' +
+						'<span class="material-icons" style="color:#666;font-size:1.2em;flex-shrink:0;">' + collapseIcon + '</span>' +
 					'</div>';
 				} else if (mbBatchAlbumGroups.length > 1) {
 					html += '<div style="padding:6px 12px;margin-bottom:4px;margin-top:' + (g > 0 ? '12px' : '0') + ';font-size:.78em;color:#888;">' +
@@ -1280,8 +1292,10 @@
 					'</div>';
 				}
 
-				for (var j = 0; j < group.indices.length; j++) {
-					html += renderBatchTrackItem(group.indices[j]);
+				if (!group.releaseMbid || !mbBatchGroupCollapsed[group.releaseMbid]) {
+					for (var j = 0; j < group.indices.length; j++) {
+						html += renderBatchTrackItem(group.indices[j]);
+					}
 				}
 			}
 		} else {
@@ -1394,6 +1408,13 @@
 		};
 		t.included = true;
 		groupBatchByAlbum();
+		if (t.metadata && t.metadata.releaseMbid) {
+			var count = 0;
+			for (var gi = 0; gi < mbBatchTracks.length; gi++) {
+				if (mbBatchTracks[gi].metadata && mbBatchTracks[gi].metadata.releaseMbid === t.metadata.releaseMbid) count++;
+			}
+			if (count >= 2) t.expanded = false;
+		}
 		renderMbBatchList();
 	}
 
@@ -1454,6 +1475,14 @@
 			}
 			mbBatchTracks[idx].expanded = true;
 			groupBatchByAlbum();
+			var mt = mbBatchTracks[idx];
+			if (mt.metadata && mt.metadata.releaseMbid) {
+				var cnt = 0;
+				for (var gi = 0; gi < mbBatchTracks.length; gi++) {
+					if (mbBatchTracks[gi].metadata && mbBatchTracks[gi].metadata.releaseMbid === mt.metadata.releaseMbid) cnt++;
+				}
+				if (cnt >= 2) mt.expanded = false;
+			}
 			renderMbBatchList();
 		})
 		.catch(function() {
@@ -1543,6 +1572,7 @@
 	function openBatchReviewModal(playlistUrl, selectedItems, selectedTracks) {
 		mbBatchTracks = [];
 		mbBatchAlbumGroups = null;
+		mbBatchGroupCollapsed = {};
 		mbBatchPending = { playlistUrl: playlistUrl, selectedItems: selectedItems };
 
 		for (var i = 0; i < selectedTracks.length; i++) {
@@ -1573,6 +1603,7 @@
 		document.getElementById('mb-batch-modal').style.display = 'none';
 		mbBatchTracks = [];
 		mbBatchAlbumGroups = null;
+		mbBatchGroupCollapsed = {};
 		mbBatchPending = null;
 		mbBatchSearching = false;
 		var videoBtn = document.getElementById('playlist-dl-video-btn');
@@ -1588,6 +1619,7 @@
 		mbBatchPending = null;
 		mbBatchTracks = [];
 		mbBatchAlbumGroups = null;
+		mbBatchGroupCollapsed = {};
 	}
 
 	function mbBatchConfirm() {

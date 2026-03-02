@@ -149,6 +149,12 @@ public static class MusicPostProcessor
 
     public static string? OrganizeFile(string filePath, MusicMetadata metadata, ILogger logger)
     {
+        if (!System.IO.File.Exists(filePath))
+        {
+            logger.LogWarning("PostProcessor: cannot organize, file not found: '{path}'", filePath);
+            return null;
+        }
+
         var artist = SanitizePathSegment(metadata.Artist);
         if (string.IsNullOrWhiteSpace(artist)) return null;
 

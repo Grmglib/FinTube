@@ -24,7 +24,7 @@ public static class DownloadTaskManager
 
     public static string StartTask(string executable, string args, ILogger logger, bool isPlaylist,
         string? retryArgs = null, Action? onCompleted = null, MusicMetadata? musicMetadata = null,
-        List<MusicMetadata?>? playlistMetadata = null)
+        List<MusicMetadata?>? playlistMetadata = null, string? selectedItems = null)
     {
         CleanupOldTasks();
 
@@ -39,14 +39,14 @@ public static class DownloadTaskManager
 
         _tasks[taskId] = taskInfo;
 
-        _ = Task.Run(() => RunDownload(taskId, executable, args, logger, retryArgs, onCompleted, musicMetadata, playlistMetadata));
+        _ = Task.Run(() => RunDownload(taskId, executable, args, logger, retryArgs, onCompleted, musicMetadata, playlistMetadata, selectedItems));
 
         return taskId;
     }
 
     private static async Task RunDownload(string taskId, string executable, string args, ILogger logger,
         string? retryArgs, Action? onCompleted, MusicMetadata? musicMetadata,
-        List<MusicMetadata?>? playlistMetadata)
+        List<MusicMetadata?>? playlistMetadata, string? selectedItems = null)
     {
         if (!_tasks.TryGetValue(taskId, out var taskInfo))
             return;
@@ -100,32 +100,41 @@ public static class DownloadTaskManager
             if ((finalStatus == DownloadTaskStatus.Completed || finalStatus == DownloadTaskStatus.CompletedWithErrors)
                 && taskInfo.IsPlaylist && playlistMetadata != null && outputPaths.Count > 0)
             {
-                var totalToProcess = Math.Min(outputPaths.Count, playlistMetadata.Count);
+                var indexedPaths = ParseIndexedOutputPaths(collectedStdout);
                 var processedCount = 0;
-                for (int i = 0; i < totalToProcess; i++)
+                var trackNum = 0;
+
+                foreach (var (plIdx, filePath) in indexedPaths)
                 {
-                    var meta = playlistMetadata[i];
-                    if (meta == null || string.IsNullOrWhiteSpace(outputPaths[i]))
+                    trackNum++;
+                    var metaIdx = MapMetadataIndex(plIdx, selectedItems, playlistMetadata.Count);
+                    if (metaIdx < 0 || metaIdx >= playlistMetadata.Count)
+                    {
+                        logger.LogWarning("Task {taskId}: no metadata mapping for playlist_index {plIdx}", taskId, plIdx);
+                        continue;
+                    }
+                    var meta = playlistMetadata[metaIdx];
+                    if (meta == null || string.IsNullOrWhiteSpace(filePath))
                         continue;
 
                     try
                     {
-                        taskInfo.Progress = $"Post-processing track {i + 1} of {totalToProcess}...";
-                        logger.LogInformation("Task {taskId}: post-processing track {idx} on '{path}'", taskId, i + 1, outputPaths[i]);
-                        await MusicPostProcessor.ProcessAsync(outputPaths[i], meta, logger);
+                        taskInfo.Progress = $"Post-processing track {trackNum} of {indexedPaths.Count}...";
+                        logger.LogInformation("Task {taskId}: post-processing track {idx} (playlist_index={plIdx}) on '{path}'", taskId, trackNum, plIdx, filePath);
+                        await MusicPostProcessor.ProcessAsync(filePath, meta, logger);
                         try
                         {
-                            MusicPostProcessor.OrganizeFile(outputPaths[i], meta, logger);
+                            MusicPostProcessor.OrganizeFile(filePath, meta, logger);
                         }
                         catch (Exception moveEx)
                         {
-                            logger.LogWarning(moveEx, "Task {taskId}: failed to organize track {idx}", taskId, i + 1);
+                            logger.LogWarning(moveEx, "Task {taskId}: failed to organize track {idx}", taskId, trackNum);
                         }
                         processedCount++;
                     }
                     catch (Exception ex)
                     {
-                        logger.LogWarning(ex, "Task {taskId}: post-processing failed for track {idx}", taskId, i + 1);
+                        logger.LogWarning(ex, "Task {taskId}: post-processing failed for track {idx}", taskId, trackNum);
                     }
                 }
 
@@ -181,6 +190,39 @@ public static class DownloadTaskManager
             .Select(l => l.Trim())
             .Where(l => !string.IsNullOrWhiteSpace(l))
             .ToList();
+    }
+
+    private static List<(int playlistIndex, string filePath)> ParseIndexedOutputPaths(string stdout)
+    {
+        var result = new List<(int, string)>();
+        if (string.IsNullOrWhiteSpace(stdout)) return result;
+
+        foreach (var rawLine in stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = rawLine.Trim();
+            var tabIdx = line.IndexOf('\t');
+            if (tabIdx > 0 && int.TryParse(line[..tabIdx], out var plIdx))
+                result.Add((plIdx, line[(tabIdx + 1)..]));
+        }
+        return result;
+    }
+
+    private static int MapMetadataIndex(int playlistIndex, string? selectedItems, int metadataCount)
+    {
+        if (!string.IsNullOrWhiteSpace(selectedItems))
+        {
+            var indices = selectedItems.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => s.Trim())
+                .Where(s => int.TryParse(s, out _))
+                .Select(int.Parse)
+                .ToList();
+
+            var pos = indices.IndexOf(playlistIndex);
+            return pos >= 0 && pos < metadataCount ? pos : -1;
+        }
+
+        var idx = playlistIndex - 1;
+        return idx >= 0 && idx < metadataCount ? idx : -1;
     }
 
     private static async Task<(int exitCode, string collectedStderr, string collectedStdout)> ExecuteYtdlp(

@@ -138,7 +138,8 @@ public class FinTubeActivityController : ControllerBase
                     retryArgs: retryArgs,
                     onCompleted: onCompleted,
                     musicMetadata: musicMetadata,
-                    playlistMetadata: playlistMetadata);
+                    playlistMetadata: playlistMetadata,
+                    selectedItems: data.isPlaylist ? data.playlistItems : null);
 
                 return Ok(new Dictionary<string, object>
                 {
@@ -314,7 +315,10 @@ public class FinTubeActivityController : ControllerBase
             }
 
             args.Add($"-o \"{outputTemplate}\"");
-            args.Add("--print after_move:filepath");
+            if (data.isPlaylist && data.audioonly)
+                args.Add("--print \"after_move:%(playlist_index|0)s\t%(filepath)s\"");
+            else
+                args.Add("--print after_move:filepath");
             args.Add("--");
             args.Add(data.ytid);
 
