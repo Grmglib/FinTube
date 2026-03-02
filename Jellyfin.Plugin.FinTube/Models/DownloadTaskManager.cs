@@ -187,7 +187,7 @@ public static class DownloadTaskManager
     {
         if (string.IsNullOrWhiteSpace(stdout)) return new List<string>();
         return stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(l => l.Trim().Trim('"'))
+            .Select(l => l.Trim().Trim('"', '\u201C', '\u201D', '\uFF02'))
             .Where(l => !string.IsNullOrWhiteSpace(l))
             .ToList();
     }
@@ -200,9 +200,16 @@ public static class DownloadTaskManager
         foreach (var rawLine in stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             var line = rawLine.Trim();
+            var sepIdx = line.IndexOf("|||");
+            if (sepIdx > 0 && int.TryParse(line[..sepIdx], out var plIdx))
+            {
+                result.Add((plIdx, line[(sepIdx + 3)..].Trim('"', '\u201C', '\u201D', '\uFF02')));
+                continue;
+            }
+            // Fallback: tab separator (legacy format)
             var tabIdx = line.IndexOf('\t');
-            if (tabIdx > 0 && int.TryParse(line[..tabIdx], out var plIdx))
-                result.Add((plIdx, line[(tabIdx + 1)..].Trim('"')));
+            if (tabIdx > 0 && int.TryParse(line[..tabIdx], out var plIdx2))
+                result.Add((plIdx2, line[(tabIdx + 1)..].Trim('"', '\u201C', '\u201D', '\uFF02')));
         }
         return result;
     }

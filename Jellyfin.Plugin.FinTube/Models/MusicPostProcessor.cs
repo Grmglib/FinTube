@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TagLib;
@@ -37,6 +38,7 @@ public static class MusicPostProcessor
 
     public static async Task ProcessAsync(string filePath, MusicMetadata metadata, ILogger logger)
     {
+        filePath = ResolvePath(filePath, logger) ?? filePath;
         if (string.IsNullOrWhiteSpace(filePath) || !System.IO.File.Exists(filePath))
         {
             logger.LogWarning("PostProcessor: file not found at '{path}', skipping", filePath);
@@ -149,6 +151,7 @@ public static class MusicPostProcessor
 
     public static string? OrganizeFile(string filePath, MusicMetadata metadata, ILogger logger)
     {
+        filePath = ResolvePath(filePath, logger) ?? filePath;
         if (!System.IO.File.Exists(filePath))
         {
             logger.LogWarning("PostProcessor: cannot organize, file not found: '{path}'", filePath);
@@ -181,6 +184,93 @@ public static class MusicPostProcessor
         System.IO.File.Move(filePath, destPath, overwrite: false);
         logger.LogInformation("PostProcessor: moved '{src}' -> '{dest}'", filePath, destPath);
         return destPath;
+    }
+
+    /// <summary>
+    /// Tries to resolve a file path that may have encoding mismatches from yt-dlp output.
+    /// Falls back to directory listing with normalized name comparison.
+    /// Always returns the cleaned path (quotes/BOM stripped) even when the file isn't found,
+    /// so callers never fall back to the raw quoted string.
+    /// </summary>
+    private static string? ResolvePath(string filePath, ILogger logger)
+    {
+        if (string.IsNullOrWhiteSpace(filePath)) return null;
+
+        filePath = filePath.Trim().Trim('"', '\u201C', '\u201D', '\uFF02', '\0', '\uFEFF');
+
+        if (System.IO.File.Exists(filePath)) return filePath;
+
+        var dir = Path.GetDirectoryName(filePath);
+        var expectedName = Path.GetFileName(filePath);
+        if (dir == null || !Directory.Exists(dir)) return filePath;
+
+        var hexSample = string.Join(" ", expectedName.Take(60).Select(c => $"{c}(U+{(int)c:X4})"));
+        logger.LogWarning("PostProcessor: exact path miss, scanning directory. Name chars: {hex}", hexSample);
+
+        var normalizedExpected = NormalizeForComparison(expectedName);
+        var fuzzyExpected = FuzzyNormalize(expectedName);
+
+        foreach (var candidate in Directory.EnumerateFiles(dir))
+        {
+            var candidateName = Path.GetFileName(candidate);
+            if (string.Equals(candidateName, expectedName, StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogInformation("PostProcessor: resolved via case-insensitive match: {file}", candidate);
+                return candidate;
+            }
+            if (string.Equals(NormalizeForComparison(candidateName), normalizedExpected, StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogInformation("PostProcessor: resolved via normalized match: {file} (expected {expected})", candidate, expectedName);
+                return candidate;
+            }
+            if (string.Equals(FuzzyNormalize(candidateName), fuzzyExpected, StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogInformation("PostProcessor: resolved via fuzzy match: {file} (expected {expected})", candidate, expectedName);
+                return candidate;
+            }
+        }
+
+        return filePath;
+    }
+
+    /// <summary>
+    /// Normalizes fullwidth Unicode chars and common typographic variants
+    /// to their ASCII equivalents for fuzzy filename comparison.
+    /// </summary>
+    private static string NormalizeForComparison(string s)
+    {
+        var sb = new StringBuilder(s.Length);
+        foreach (var c in s)
+        {
+            if (c >= '\uFF01' && c <= '\uFF5E')
+                sb.Append((char)(c - '\uFF01' + '!'));
+            else if (c == '\u2018' || c == '\u2019' || c == '\u02BC'
+                  || c == '\u0060' || c == '\u00B4' || c == '\u2032')
+                sb.Append('\'');
+            else if (c == '\u201C' || c == '\u201D' || c == '\u2033')
+                sb.Append('"');
+            else if (c == '\u2010' || c == '\u2011' || c == '\u2012'
+                  || c == '\u2013' || c == '\u2014' || c == '\u2015')
+                sb.Append('-');
+            else
+                sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Aggressive normalization: keeps only letters, digits, dots, and spaces
+    /// for last-resort filename matching.
+    /// </summary>
+    private static string FuzzyNormalize(string s)
+    {
+        var sb = new StringBuilder(s.Length);
+        foreach (var c in s)
+        {
+            if (char.IsLetterOrDigit(c) || c == '.' || c == ' ')
+                sb.Append(char.ToLowerInvariant(c));
+        }
+        return sb.ToString();
     }
 
     private static string SanitizePathSegment(string name)

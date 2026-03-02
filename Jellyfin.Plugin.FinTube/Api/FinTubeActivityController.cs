@@ -341,7 +341,7 @@ public class FinTubeActivityController : ControllerBase
 
             args.Add($"-o \"{outputTemplate}\"");
             if (data.isPlaylist && data.audioonly)
-                args.Add("--print \"after_move:%(playlist_index|0)s\t%(filepath)s\"");
+                args.Add("--print after_move:%(playlist_index|0)s|||%(filepath)s");
             else
                 args.Add("--print after_move:filepath");
             args.Add("--");
