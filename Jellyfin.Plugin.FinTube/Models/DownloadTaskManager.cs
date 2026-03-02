@@ -187,7 +187,7 @@ public static class DownloadTaskManager
     {
         if (string.IsNullOrWhiteSpace(stdout)) return new List<string>();
         return stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(l => l.Trim())
+            .Select(l => l.Trim().Trim('"'))
             .Where(l => !string.IsNullOrWhiteSpace(l))
             .ToList();
     }
@@ -202,7 +202,7 @@ public static class DownloadTaskManager
             var line = rawLine.Trim();
             var tabIdx = line.IndexOf('\t');
             if (tabIdx > 0 && int.TryParse(line[..tabIdx], out var plIdx))
-                result.Add((plIdx, line[(tabIdx + 1)..]));
+                result.Add((plIdx, line[(tabIdx + 1)..].Trim('"')));
         }
         return result;
     }
