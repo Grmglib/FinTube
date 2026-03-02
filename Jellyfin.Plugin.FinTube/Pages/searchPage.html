@@ -1480,6 +1480,28 @@
 				'</div>' +
 			'</div>' +
 			'<div id="mb-batch-release-browser-' + idx + '" style="display:none;margin-top:4px;border:1px solid #333;border-radius:4px;background:#1a1a1d;max-height:150px;overflow-y:auto;"></div>';
+		} else if (t.metadata && !t.included) {
+			var meta = t.metadata;
+			html += '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+				'<div style="flex:1;min-width:100px;">' +
+					'<label style="font-size:.72em;color:#888;">Title</label>' +
+					'<input id="mb-batch-title-' + idx + '" class="emby-input" type="text" value="' + (meta.title || '').replace(/"/g, '&quot;') + '" style="font-size:.8em;padding:3px 6px;" onchange="updateBatchTrackMeta(' + idx + ')" />' +
+				'</div>' +
+				'<div style="flex:1;min-width:100px;">' +
+					'<label style="font-size:.72em;color:#888;">Artist</label>' +
+					'<input id="mb-batch-artist-' + idx + '" class="emby-input" type="text" value="' + (meta.artist || '').replace(/"/g, '&quot;') + '" style="font-size:.8em;padding:3px 6px;" onchange="updateBatchTrackMeta(' + idx + ')" />' +
+				'</div>' +
+			'</div>' +
+			'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">' +
+				'<div style="flex:1;min-width:100px;">' +
+					'<label style="font-size:.72em;color:#888;">Album</label>' +
+					'<input id="mb-batch-album-' + idx + '" class="emby-input" type="text" value="' + (meta.album || '').replace(/"/g, '&quot;') + '" style="font-size:.8em;padding:3px 6px;" onchange="updateBatchTrackMeta(' + idx + ')" />' +
+				'</div>' +
+				'<div style="width:70px;">' +
+					'<label style="font-size:.72em;color:#888;">Year</label>' +
+					'<input id="mb-batch-year-' + idx + '" class="emby-input" type="text" value="' + (meta.year || '').replace(/"/g, '&quot;') + '" maxlength="4" style="font-size:.8em;padding:3px 6px;" onchange="updateBatchTrackMeta(' + idx + ')" />' +
+				'</div>' +
+			'</div>';
 		} else {
 			html += '<div style="text-align:center;padding:8px;color:#888;font-size:.8em;"><span class="material-icons" style="font-size:1.3em;vertical-align:middle;color:#555;">search_off</span> No match found. Try a manual search above.</div>';
 		}
@@ -1498,8 +1520,41 @@
 	}
 
 	function toggleBatchTrackInclude(idx, checked) {
-		mbBatchTracks[idx].included = checked;
-		updateBatchMatchCount();
+		var t = mbBatchTracks[idx];
+		t.included = checked;
+
+		if (!checked) {
+			var parsedTitle = parseBatchTrackTitle(t);
+			t.metadata = {
+				title: parsedTitle,
+				artist: t.videoChannel || '',
+				album: '',
+				year: '',
+				trackNumber: '',
+				genre: '',
+				artistMbid: '',
+				releaseMbid: '',
+				recordingMbid: ''
+			};
+			t.expanded = true;
+		} else if (t.mbResults && t.mbResults.length > 0) {
+			var r = t.mbResults[t.selectedIdx || 0];
+			var isSingle = !r.album || r.totalTracks <= 1;
+			t.metadata = {
+				title: r.title || '',
+				artist: r.artist || '',
+				album: isSingle ? (r.title || '') : (r.album || ''),
+				year: r.year || '',
+				trackNumber: isSingle ? '1' : (r.trackNumber || ''),
+				genre: r.genre || '',
+				artistMbid: r.artistMbid || '',
+				releaseMbid: r.releaseMbid || '',
+				recordingMbid: r.recordingMbid || ''
+			};
+		}
+
+		groupBatchByAlbum();
+		renderMbBatchList();
 	}
 
 	function selectBatchResult(trackIdx, resultIdx) {
@@ -1983,7 +2038,7 @@
 		var metadataArray = [];
 		for (var i = 0; i < mbBatchTracks.length; i++) {
 			var t = mbBatchTracks[i];
-			if (t.included && t.metadata && t.metadata.releaseMbid) {
+			if (t.metadata && (t.metadata.title || t.metadata.artist)) {
 				metadataArray.push({
 					Title: t.metadata.title || '',
 					Artist: t.metadata.artist || '',
