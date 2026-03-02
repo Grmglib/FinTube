@@ -72,6 +72,12 @@
                         <div class="fieldDescription" style="margin-top:6px;">These are the default custom values. They can be overridden per-download on the main page.</div>
                     </div>
                     <h3 style="margin-top:24px;">YouTube Authentication</h3>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="cookiesFile">Cookies File Path</label>
+                        <input id="cookiesFile" name="cookiesFile" type="text" is="emby-input" class="emby-input"
+                            placeholder="E:\Jellyfin\Tools\cookies.txt" />
+                        <div class="fieldDescription">Path to a Netscape-format cookies.txt file exported from your browser. This is more reliable than Cookies Browser when Jellyfin runs as a Windows service. You can export cookies using browser extensions like "Get cookies.txt LOCALLY". Takes priority over Cookies Browser when both are set.</div>
+                    </div>
                     <div class="selectContainer">
                         <label class="inputLabel inputLabelUnfocused" for="cookiesBrowser">Cookies Browser</label>
                         <select id="cookiesBrowser" name="cookiesBrowser" is="emby-select" class="emby-select">
@@ -82,7 +88,7 @@
                             <option value="brave">Brave</option>
                             <option value="opera">Opera</option>
                         </select>
-                        <div class="fieldDescription">Select the browser to read YouTube cookies from for age-restricted content. The browser must be installed on the Jellyfin server and you must be logged into YouTube in that browser.</div>
+                        <div class="fieldDescription">Select the browser to read YouTube cookies from for age-restricted content. The browser must be installed on the Jellyfin server and you must be logged into YouTube in that browser. Ignored if Cookies File Path is set.</div>
                     </div>
                     <h3 style="margin-top:24px;">Music Organizer</h3>
                     <div class="checkboxContainer checkboxContainer-withDescription">
@@ -296,6 +302,7 @@
                         document.querySelector('#cfgCustomVideoFormat').value = config.customVideoFormat || 'mp4';
                         document.querySelector('#cfgCustomAudioFormat').value = config.customAudioFormat || 'mp3';
                         document.querySelector('#cfgCustomAudioBitrate').value = config.customAudioBitrate || '192';
+                        document.querySelector('#cookiesFile').value = config.cookiesFile || '';
                         document.querySelector('#cookiesBrowser').value = config.cookiesBrowser || '';
                         document.querySelector('#enableMusicOrganizer').checked = config.enableMusicOrganizer !== false;
                         document.querySelector('#enableCoverArtReplacement').checked = config.enableCoverArtReplacement !== false;
@@ -333,6 +340,7 @@
                     config.customVideoFormat = document.querySelector('#cfgCustomVideoFormat').value;
                     config.customAudioFormat = document.querySelector('#cfgCustomAudioFormat').value;
                     config.customAudioBitrate = document.querySelector('#cfgCustomAudioBitrate').value;
+                    config.cookiesFile = document.querySelector('#cookiesFile').value;
                     config.cookiesBrowser = document.querySelector('#cookiesBrowser').value;
                     config.enableMusicOrganizer = document.querySelector('#enableMusicOrganizer').checked;
                     config.enableCoverArtReplacement = document.querySelector('#enableCoverArtReplacement').checked;

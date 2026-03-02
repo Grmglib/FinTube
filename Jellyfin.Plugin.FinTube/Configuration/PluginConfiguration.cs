@@ -21,6 +21,7 @@ public class PluginConfiguration : BasePluginConfiguration
         customAudioFormat = "mp3";
         customAudioBitrate = "192";
         cookiesBrowser = "";
+        cookiesFile = "";
         enableMusicOrganizer = true;
         enableAutoLibraryScan = true;
         enableCoverArtReplacement = true;
@@ -58,6 +59,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Browser to read YouTube cookies from for age-restricted content (e.g. "firefox", "chrome", "edge")
     /// </summary>
     public string cookiesBrowser { get; set; }
+
+    /// <summary>
+    /// Path to a Netscape-format cookies.txt file for YouTube authentication.
+    /// Takes priority over cookiesBrowser when both are set.
+    /// </summary>
+    public string cookiesFile { get; set; }
 
     /// <summary>
     /// When enabled, audio downloads query MusicBrainz to identify artist/album and organize files into Artist/Album folders

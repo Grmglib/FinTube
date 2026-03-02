@@ -80,11 +80,14 @@ public class FinTubeActivityController : ControllerBase
                 if (!System.IO.Directory.CreateDirectory(targetPath).Exists)
                     throw new Exception("Directory could not be created");
 
-                var args = BuildYtdlpArgs(data, targetPath);
+                var hasCookiesFile = !string.IsNullOrWhiteSpace(config.cookiesFile);
+                var args = hasCookiesFile
+                    ? BuildYtdlpArgs(data, targetPath, cookiesFile: config.cookiesFile)
+                    : BuildYtdlpArgs(data, targetPath);
                 _logger.LogInformation("Exec: {exec} {args}", config.exec_YTDL, args);
 
                 string? retryArgs = null;
-                if (!string.IsNullOrWhiteSpace(config.cookiesBrowser))
+                if (!hasCookiesFile && !string.IsNullOrWhiteSpace(config.cookiesBrowser))
                     retryArgs = BuildYtdlpArgs(data, targetPath, cookiesBrowser: config.cookiesBrowser);
 
                 Action? onCompleted = null;
@@ -205,15 +208,16 @@ public class FinTubeActivityController : ControllerBase
                 || stderr.Contains("--cookies-from-browser", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static string BuildYtdlpArgs(FinTubeData data, string targetPath, string cookiesBrowser = "")
+        private static string BuildYtdlpArgs(FinTubeData data, string targetPath,
+            string cookiesBrowser = "", string cookiesFile = "")
         {
             var preset = data.preset ?? "balanced";
             var args = new List<string>();
 
-            if (!string.IsNullOrWhiteSpace(cookiesBrowser))
-            {
+            if (!string.IsNullOrWhiteSpace(cookiesFile))
+                args.Add($"--cookies \"{cookiesFile}\"");
+            else if (!string.IsNullOrWhiteSpace(cookiesBrowser))
                 args.Add($"--cookies-from-browser {cookiesBrowser}");
-            }
 
             if (data.audioonly)
             {
@@ -488,6 +492,10 @@ public class FinTubeActivityController : ControllerBase
                     args = $"-j --no-download --no-playlist {searchArg}";
                 }
 
+                var searchCookiesFile = config.cookiesFile;
+                if (!string.IsNullOrWhiteSpace(searchCookiesFile))
+                    args = $"--cookies \"{searchCookiesFile}\" " + args;
+
                 _logger.LogInformation("FinTube Search: {exec} {args}", config.exec_YTDL, args);
 
                 var (exitCode, output, errorOutput) = await RunYtdlp(config.exec_YTDL, args);
@@ -495,15 +503,15 @@ public class FinTubeActivityController : ControllerBase
                 if (exitCode != 0 && string.IsNullOrWhiteSpace(output) && isUrl && IsAuthRequiredError(errorOutput))
                 {
                     var browser = config.cookiesBrowser;
-                    if (!string.IsNullOrWhiteSpace(browser))
+                    if (!string.IsNullOrWhiteSpace(browser) && string.IsNullOrWhiteSpace(searchCookiesFile))
                     {
                         _logger.LogWarning("YouTube authentication required for search, retrying with cookies from {browser}...", browser);
                         var retryArgs = $"--cookies-from-browser {browser} " + args;
                         (exitCode, output, errorOutput) = await RunYtdlp(config.exec_YTDL, retryArgs);
                     }
-                    else
+                    else if (string.IsNullOrWhiteSpace(searchCookiesFile))
                     {
-                        return StatusCode(500, new Dictionary<string, object>() {{"message", "YouTube requires authentication (age-restricted or bot detection). Go to FinTube Settings and select your browser in 'Cookies Browser' to enable authentication. Make sure you are logged into YouTube in that browser."}});
+                        return StatusCode(500, new Dictionary<string, object>() {{"message", "YouTube requires authentication (age-restricted or bot detection). Go to FinTube Settings and configure 'Cookies File Path' or 'Cookies Browser' to enable authentication."}});
                     }
                 }
 
