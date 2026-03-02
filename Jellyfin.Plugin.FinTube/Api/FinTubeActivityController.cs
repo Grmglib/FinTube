@@ -731,8 +731,8 @@ public class FinTubeActivityController : ControllerBase
             try
             {
                 var elapsed = DateTime.UtcNow - _mbLastRequest;
-                if (elapsed.TotalMilliseconds < 1100)
-                    await Task.Delay(1100 - (int)elapsed.TotalMilliseconds);
+                if (elapsed.TotalMilliseconds < 300)
+                    await Task.Delay(300 - (int)elapsed.TotalMilliseconds);
 
                 var response = await _mbClient.GetAsync(url);
                 _mbLastRequest = DateTime.UtcNow;
