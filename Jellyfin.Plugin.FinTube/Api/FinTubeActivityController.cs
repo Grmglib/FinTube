@@ -631,6 +631,20 @@ public class FinTubeActivityController : ControllerBase
         private static readonly SemaphoreSlim _mbRateLimiter = new(1, 1);
         private static DateTime _mbLastRequest = DateTime.MinValue;
 
+        private static readonly HttpClient _discogsClient = CreateDiscogsClient();
+        private static readonly SemaphoreSlim _discogsRateLimiter = new(1, 1);
+        private static DateTime _discogsLastRequest = DateTime.MinValue;
+
+        private static HttpClient CreateDiscogsClient()
+        {
+            var client = new HttpClient();
+            client.BaseAddress = new Uri("https://api.discogs.com/");
+            client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("FinTube", "1.0"));
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            client.Timeout = TimeSpan.FromSeconds(15);
+            return client;
+        }
+
         private static HttpClient CreateMusicBrainzClient()
         {
             var client = new HttpClient();
@@ -745,6 +759,156 @@ public class FinTubeActivityController : ControllerBase
             finally
             {
                 _mbRateLimiter.Release();
+            }
+        }
+
+        private async Task<HttpResponseMessage> DiscogsGetAsync(string path, string? token)
+        {
+            await _discogsRateLimiter.WaitAsync();
+            try
+            {
+                var elapsed = DateTime.UtcNow - _discogsLastRequest;
+                if (elapsed.TotalMilliseconds < 1100)
+                    await Task.Delay(1100 - (int)elapsed.TotalMilliseconds);
+
+                using var request = new HttpRequestMessage(HttpMethod.Get, path);
+                if (!string.IsNullOrWhiteSpace(token))
+                    request.Headers.TryAddWithoutValidation("Authorization", "Discogs token=" + token.Trim());
+
+                var response = await _discogsClient.SendAsync(request);
+                _discogsLastRequest = DateTime.UtcNow;
+                return response;
+            }
+            finally
+            {
+                _discogsRateLimiter.Release();
+            }
+        }
+
+        private static bool NeedsDiscogsEnrichment(Models.MusicBrainzResult r)
+        {
+            return string.IsNullOrWhiteSpace(r.Genre) || string.IsNullOrWhiteSpace(r.Year)
+                || string.IsNullOrWhiteSpace(r.Album) || string.IsNullOrWhiteSpace(r.Artist);
+        }
+
+        private async Task EnrichResultWithDiscogs(Models.MusicBrainzResult result, string? discogsToken)
+        {
+            if (!NeedsDiscogsEnrichment(result))
+                return;
+            if (string.IsNullOrWhiteSpace(discogsToken))
+                return;
+            var artist = result.Artist?.Trim() ?? "";
+            var releaseTitle = !string.IsNullOrWhiteSpace(result.Album) ? result.Album.Trim() : result.Title?.Trim() ?? "";
+            if (string.IsNullOrWhiteSpace(artist) && string.IsNullOrWhiteSpace(releaseTitle))
+                return;
+
+            try
+            {
+                var query = new List<string>();
+                if (!string.IsNullOrWhiteSpace(artist)) query.Add("artist=" + Uri.EscapeDataString(artist));
+                if (!string.IsNullOrWhiteSpace(releaseTitle)) query.Add("release_title=" + Uri.EscapeDataString(releaseTitle));
+                if (query.Count == 0) return;
+                var searchPath = "database/search?type=release&per_page=3&" + string.Join("&", query);
+
+                using var searchResponse = await DiscogsGetAsync(searchPath, discogsToken);
+                if (!searchResponse.IsSuccessStatusCode)
+                {
+                    _logger.LogDebug("Discogs search returned {status}", searchResponse.StatusCode);
+                    return;
+                }
+
+                var searchJson = await searchResponse.Content.ReadAsStringAsync();
+                int releaseId = 0;
+                using (var searchDoc = JsonDocument.Parse(searchJson))
+                {
+                    var root = searchDoc.RootElement;
+                    if (!root.TryGetProperty("results", out var results) || results.GetArrayLength() == 0)
+                        return;
+
+                    var first = results[0];
+                    if (!first.TryGetProperty("id", out var idEl))
+                        return;
+                    releaseId = idEl.GetInt32();
+                }
+                if (releaseId <= 0) return;
+
+                var releasePath = "releases/" + releaseId;
+                using var releaseResponse = await DiscogsGetAsync(releasePath, discogsToken);
+                if (!releaseResponse.IsSuccessStatusCode)
+                {
+                    _logger.LogDebug("Discogs release {id} returned {status}", releaseId, releaseResponse.StatusCode);
+                    return;
+                }
+
+                var releaseJson = await releaseResponse.Content.ReadAsStringAsync();
+                using (var releaseDoc = JsonDocument.Parse(releaseJson))
+                {
+                    var root = releaseDoc.RootElement;
+                    var enriched = new List<string>();
+
+                    var genres = new List<string>();
+                    if (root.TryGetProperty("genres", out var genresEl) && genresEl.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var g in genresEl.EnumerateArray())
+                            if (g.ValueKind == JsonValueKind.String)
+                                genres.Add(g.GetString() ?? "");
+                    }
+                    var styles = new List<string>();
+                    if (root.TryGetProperty("styles", out var stylesEl) && stylesEl.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var s in stylesEl.EnumerateArray())
+                            if (s.ValueKind == JsonValueKind.String)
+                                styles.Add(s.GetString() ?? "");
+                    }
+                    var parts = new List<string>();
+                    if (genres.Count > 0) parts.Add(string.Join(", ", genres));
+                    if (styles.Count > 0) parts.Add(string.Join(", ", styles));
+                    if (parts.Count > 0 && string.IsNullOrWhiteSpace(result.Genre))
+                    {
+                        result.Genre = string.Join(" / ", parts);
+                        enriched.Add("genre");
+                    }
+
+                    if (string.IsNullOrWhiteSpace(result.Year))
+                    {
+                        var released = root.TryGetProperty("released", out var relEl) ? relEl.GetString()?.Trim()
+                            : root.TryGetProperty("released_formatted", out var relFmt) ? relFmt.GetString()?.Trim() : null;
+                        if (!string.IsNullOrEmpty(released) && released.Length >= 4)
+                        {
+                            result.Year = released.Length == 4 ? released : released.Substring(0, 4);
+                            enriched.Add("year");
+                        }
+                    }
+                    if (string.IsNullOrWhiteSpace(result.Album) && root.TryGetProperty("title", out var titleEl))
+                    {
+                        var title = titleEl.GetString()?.Trim();
+                        if (!string.IsNullOrEmpty(title))
+                        {
+                            result.Album = title;
+                            enriched.Add("album");
+                        }
+                    }
+                    if (string.IsNullOrWhiteSpace(result.Artist) && root.TryGetProperty("artists", out var artistsEl) && artistsEl.ValueKind == JsonValueKind.Array && artistsEl.GetArrayLength() > 0)
+                    {
+                        var firstArtist = artistsEl[0];
+                        if (firstArtist.TryGetProperty("name", out var nameEl))
+                        {
+                            var name = nameEl.GetString()?.Trim();
+                            if (!string.IsNullOrEmpty(name))
+                            {
+                                result.Artist = name;
+                                enriched.Add("artist");
+                            }
+                        }
+                    }
+
+                    if (enriched.Count > 0)
+                        _logger.LogDebug("Discogs enriched {fields} for {artist} - {title}", string.Join(", ", enriched), result.Artist, result.Title);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Discogs enrich failed for {artist} - {title}", result.Artist, result.Title);
             }
         }
 
@@ -913,6 +1077,16 @@ public class FinTubeActivityController : ControllerBase
                 {
                     _logger.LogInformation("MusicBrainz: no results, retrying without artist filter");
                     results = await QueryMusicBrainz(parsedTitle, "");
+                }
+
+                var config = Plugin.Instance?.Configuration;
+                if (config != null && config.enableDiscogsMetadata && !string.IsNullOrWhiteSpace(config.discogsToken))
+                {
+                    foreach (var r in results)
+                    {
+                        if (NeedsDiscogsEnrichment(r))
+                            await EnrichResultWithDiscogs(r, config.discogsToken);
+                    }
                 }
 
                 return Ok(new Dictionary<string, object>

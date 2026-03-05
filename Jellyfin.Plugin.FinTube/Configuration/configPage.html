@@ -113,6 +113,19 @@
                         </label>
                         <div class="fieldDescription">When enabled, Jellyfin will automatically scan the library for new files after each download completes. Disable if you have a large library and prefer to scan manually.</div>
                     </div>
+                    <h3 style="margin-top:24px;">Metadados extras (Discogs)</h3>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="enableDiscogsMetadata" name="enableDiscogsMetadata" type="checkbox" is="emby-checkbox" />
+                            <span class="checkboxLabel">Completar metadados com Discogs (ex.: gênero quando o MusicBrainz não retornar)</span>
+                        </label>
+                        <div class="fieldDescription">When enabled, missing fields such as genre will be filled from Discogs when MusicBrainz does not provide them. Requires a Discogs token below.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="discogsToken">Token Discogs (opcional)</label>
+                        <input id="discogsToken" name="discogsToken" type="password" is="emby-input" class="emby-input" autocomplete="off" />
+                        <div class="fieldDescription">Personal Access Token from Discogs: go to <a href="https://www.discogs.com/settings/developers" target="_blank" rel="noopener">Discogs → Settings → Developers</a>, then create a Personal Access Token. Required for the option above.</div>
+                    </div>
                     <h3 style="margin-top:24px;">Default Download Paths</h3>
                     <div class="inputContainer" style="display:flex;align-items:flex-end;gap:8px;">
                         <div style="flex:1;">
@@ -307,6 +320,8 @@
                         document.querySelector('#enableMusicOrganizer').checked = config.enableMusicOrganizer !== false;
                         document.querySelector('#enableCoverArtReplacement').checked = config.enableCoverArtReplacement !== false;
                         document.querySelector('#enableAutoLibraryScan').checked = config.enableAutoLibraryScan !== false;
+                        document.querySelector('#enableDiscogsMetadata').checked = config.enableDiscogsMetadata === true;
+                        document.querySelector('#discogsToken').value = config.discogsToken || '';
                         toggleConfigCustomOpts();
                         toggleConfigBitrate();
                         validateExecPath('exec_YTDL');
@@ -345,6 +360,8 @@
                     config.enableMusicOrganizer = document.querySelector('#enableMusicOrganizer').checked;
                     config.enableCoverArtReplacement = document.querySelector('#enableCoverArtReplacement').checked;
                     config.enableAutoLibraryScan = document.querySelector('#enableAutoLibraryScan').checked;
+                    config.enableDiscogsMetadata = document.querySelector('#enableDiscogsMetadata').checked;
+                    config.discogsToken = document.querySelector('#discogsToken').value || '';
                     ApiClient.updatePluginConfiguration(TubeFinConfig.pluginUniqueId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     });

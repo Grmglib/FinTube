@@ -25,6 +25,8 @@ public class PluginConfiguration : BasePluginConfiguration
         enableMusicOrganizer = true;
         enableAutoLibraryScan = true;
         enableCoverArtReplacement = true;
+        enableDiscogsMetadata = false;
+        discogsToken = "";
     }
 
     /// <summary>
@@ -81,4 +83,15 @@ public class PluginConfiguration : BasePluginConfiguration
     /// and rewrites metadata tags using TagLib# after download completes
     /// </summary>
     public bool enableCoverArtReplacement { get; set; }
+
+    /// <summary>
+    /// When enabled, fills missing metadata (e.g. genre) from Discogs when MusicBrainz does not provide it.
+    /// Requires DiscogsToken to be set.
+    /// </summary>
+    public bool enableDiscogsMetadata { get; set; }
+
+    /// <summary>
+    /// Personal Access Token from Discogs (Settings → Developers). Required for enableDiscogsMetadata.
+    /// </summary>
+    public string discogsToken { get; set; } = "";
 }
