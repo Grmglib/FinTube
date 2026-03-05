@@ -105,20 +105,23 @@ public class FinTubeActivityController : ControllerBase
                 }
 
                 Models.MusicMetadata? musicMetadata = null;
-                if (data.audioonly && !string.IsNullOrWhiteSpace(data.metadataReleaseMbid)
-                    && config.enableCoverArtReplacement)
+                bool hasSingleTrackMetadata = data.audioonly && !data.isPlaylist
+                    && (string.IsNullOrWhiteSpace(data.metadataReleaseMbid) == false
+                        || string.IsNullOrWhiteSpace(data.metadataTitle) == false
+                        || string.IsNullOrWhiteSpace(data.metadataArtist) == false);
+                if (hasSingleTrackMetadata && config.enableCoverArtReplacement)
                 {
                     musicMetadata = new Models.MusicMetadata
                     {
-                        Title = data.metadataTitle,
-                        Artist = data.metadataArtist,
-                        Album = data.metadataAlbum,
-                        Year = data.metadataYear,
-                        TrackNumber = data.metadataTrackNumber,
-                        Genre = data.metadataGenre,
-                        ArtistMbid = data.metadataArtistMbid,
-                        ReleaseMbid = data.metadataReleaseMbid,
-                        RecordingMbid = data.metadataRecordingMbid
+                        Title = data.metadataTitle ?? "",
+                        Artist = data.metadataArtist ?? "",
+                        Album = data.metadataAlbum ?? "",
+                        Year = data.metadataYear ?? "",
+                        TrackNumber = data.metadataTrackNumber ?? "",
+                        Genre = data.metadataGenre ?? "",
+                        ArtistMbid = data.metadataArtistMbid ?? "",
+                        ReleaseMbid = data.metadataReleaseMbid ?? "",
+                        RecordingMbid = data.metadataRecordingMbid ?? ""
                     };
                 }
 
@@ -276,6 +279,7 @@ public class FinTubeActivityController : ControllerBase
 
             args.Add("--embed-thumbnail");
             args.Add("--embed-metadata");
+            args.Add("--yes-overwrites");
 
             if (!string.IsNullOrWhiteSpace(data.metadataTitle))
                 args.Add($"--replace-in-metadata \"title\" \".+\" \"{data.metadataTitle.Replace("\"", "'")}\"");

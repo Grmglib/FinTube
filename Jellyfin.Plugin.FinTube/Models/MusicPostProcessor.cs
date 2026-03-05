@@ -181,7 +181,7 @@ public static class MusicPostProcessor
         if (string.Equals(destPath, filePath, StringComparison.OrdinalIgnoreCase))
             return filePath;
 
-        System.IO.File.Move(filePath, destPath, overwrite: false);
+        System.IO.File.Move(filePath, destPath, overwrite: true);
         logger.LogInformation("PostProcessor: moved '{src}' -> '{dest}'", filePath, destPath);
         return destPath;
     }

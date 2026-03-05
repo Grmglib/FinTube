@@ -219,6 +219,10 @@
 						</div>
 						<div id="mb-results" style="display:none;">
 							<div style="margin-bottom:8px;font-size:.85em;color:#aaa;">Select a match or edit the fields below:</div>
+							<label class="inputContainer" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer;">
+								<input id="mb-ignore-brainz" type="checkbox" is="emby-checkbox" class="emby-checkbox" onchange="updateMbPreviewPath()" />
+								<span class="inputLabel" style="color:#aaa;font-size:.85em;">Ignore MusicBrainz – use only manual fields below</span>
+							</label>
 							<div id="mb-list" style="max-height:200px;overflow-y:auto;margin-bottom:12px;"></div>
 							<div class="inputContainer" style="margin-bottom:8px;">
 								<label class="inputLabel" style="color:#ccc;">Track Title</label>
@@ -243,6 +247,10 @@
 									<label class="inputLabel" style="color:#ccc;">Year</label>
 									<input id="mb-year" class="emby-input" type="text" maxlength="4" placeholder="YYYY" />
 								</div>
+							</div>
+							<div class="inputContainer" style="margin-bottom:8px;">
+								<label class="inputLabel" style="color:#ccc;">Genre</label>
+								<input id="mb-genre" class="emby-input" type="text" placeholder="e.g. Rock, Classical" />
 							</div>
 							<div id="mb-release-browser" style="display:none;margin-bottom:8px;border:1px solid #333;border-radius:6px;background:#151518;max-height:200px;overflow-y:auto;"></div>
 							<div style="font-size:.8em;color:#666;margin-top:4px;">
@@ -466,6 +474,8 @@
 				document.getElementById('mb-title').value = r.title || '';
 				document.getElementById('mb-artist').value = r.artist || '';
 				document.getElementById('mb-year').value = r.year || '';
+				var gEl = document.getElementById('mb-genre');
+				if (gEl) gEl.value = r.genre || '';
 
 				var isSingle = !r.album || r.totalTracks <= 1;
 				if (isSingle) {
@@ -501,13 +511,16 @@
 			var artist = document.getElementById('mb-artist').value.trim();
 			var album = document.getElementById('mb-album').value.trim();
 			var year = document.getElementById('mb-year').value.trim();
+			var genreEl = document.getElementById('mb-genre');
+			var genre = genreEl ? genreEl.value.trim() : '';
 			var organizePath = '';
 			if (artist && album) organizePath = artist + '/' + album;
 			else if (artist) organizePath = artist;
 
-			var selectedResult = (mbPendingDownload && mbPendingDownload.mbResults) ? mbPendingDownload.mbResults[mbSelectedIdx] : null;
+			var useManualOnly = document.getElementById('mb-ignore-brainz') && document.getElementById('mb-ignore-brainz').checked;
+			var selectedResult = (!useManualOnly && mbPendingDownload && mbPendingDownload.mbResults && mbSelectedIdx >= 0) ? mbPendingDownload.mbResults[mbSelectedIdx] : null;
 			var trackNumber = selectedResult ? (selectedResult.trackNumber || '') : '';
-			var genre = selectedResult ? (selectedResult.genre || '') : '';
+			if (!genre && selectedResult && selectedResult.genre) genre = selectedResult.genre;
 			var artistMbid = selectedResult ? (selectedResult.artistMbid || '') : '';
 			var releaseMbid = selectedResult ? (selectedResult.releaseMbid || '') : '';
 			var recordingMbid = selectedResult ? (selectedResult.recordingMbid || '') : '';
@@ -588,6 +601,9 @@
 			resultsEl.style.display = 'block';
 			confirmBtn.style.display = 'inline-block';
 
+			var ignoreCb = document.getElementById('mb-ignore-brainz');
+			if (ignoreCb) ignoreCb.checked = false;
+
 			if (!results || results.length === 0) {
 				noResultEl.style.display = 'block';
 				renderMbList([]);
@@ -595,6 +611,8 @@
 				document.getElementById('mb-artist').value = parsedArtist || videoChannel || '';
 				document.getElementById('mb-album').value = '';
 				document.getElementById('mb-year').value = '';
+				var gEl = document.getElementById('mb-genre');
+				if (gEl) gEl.value = '';
 			} else {
 				noResultEl.style.display = 'none';
 				renderMbList(results);
@@ -602,6 +620,8 @@
 				document.getElementById('mb-artist').value = results[0].artist || '';
 				document.getElementById('mb-album').value = results[0].album || '';
 				document.getElementById('mb-year').value = results[0].year || '';
+				var gEl = document.getElementById('mb-genre');
+				if (gEl) gEl.value = results[0].genre || '';
 				selectMbResult(0);
 			}
 
@@ -634,12 +654,14 @@
 				} else {
 					noResultEl.style.display = 'none';
 					renderMbList(results);
-					document.getElementById('mb-title').value = results[0].title || '';
-					document.getElementById('mb-artist').value = results[0].artist || '';
-					document.getElementById('mb-album').value = results[0].album || '';
-					document.getElementById('mb-year').value = results[0].year || '';
-					selectMbResult(0);
-					updateMbPreviewPath();
+				document.getElementById('mb-title').value = results[0].title || '';
+				document.getElementById('mb-artist').value = results[0].artist || '';
+				document.getElementById('mb-album').value = results[0].album || '';
+				document.getElementById('mb-year').value = results[0].year || '';
+				var gEl = document.getElementById('mb-genre');
+				if (gEl) gEl.value = results[0].genre || '';
+				selectMbResult(0);
+				updateMbPreviewPath();
 				}
 			})
 			.catch(function() {
@@ -1479,6 +1501,10 @@
 					'<input id="mb-batch-year-' + idx + '" class="emby-input" type="text" value="' + ((meta.year || sel.year || '')).replace(/"/g, '&quot;') + '" maxlength="4" style="font-size:.8em;padding:3px 6px;" onchange="updateBatchTrackMeta(' + idx + ')" />' +
 				'</div>' +
 			'</div>' +
+			'<div style="margin-top:4px;">' +
+				'<label style="font-size:.72em;color:#888;">Genre</label>' +
+				'<input id="mb-batch-genre-' + idx + '" class="emby-input" type="text" value="' + ((meta.genre || sel.genre || '')).replace(/"/g, '&quot;') + '" style="font-size:.8em;padding:3px 6px;width:100%;max-width:200px;" onchange="updateBatchTrackMeta(' + idx + ')" />' +
+			'</div>' +
 			'<div id="mb-batch-release-browser-' + idx + '" style="display:none;margin-top:4px;border:1px solid #333;border-radius:4px;background:#1a1a1d;max-height:150px;overflow-y:auto;"></div>';
 		} else if (t.metadata && !t.included) {
 			var meta = t.metadata;
@@ -1501,6 +1527,10 @@
 					'<label style="font-size:.72em;color:#888;">Year</label>' +
 					'<input id="mb-batch-year-' + idx + '" class="emby-input" type="text" value="' + (meta.year || '').replace(/"/g, '&quot;') + '" maxlength="4" style="font-size:.8em;padding:3px 6px;" onchange="updateBatchTrackMeta(' + idx + ')" />' +
 				'</div>' +
+			'</div>' +
+			'<div style="margin-top:4px;">' +
+				'<label style="font-size:.72em;color:#888;">Genre</label>' +
+				'<input id="mb-batch-genre-' + idx + '" class="emby-input" type="text" value="' + (meta.genre || '').replace(/"/g, '&quot;') + '" style="font-size:.8em;padding:3px 6px;width:100%;max-width:200px;" onchange="updateBatchTrackMeta(' + idx + ')" />' +
 			'</div>';
 		} else {
 			html += '<div style="text-align:center;padding:8px;color:#888;font-size:.8em;"><span class="material-icons" style="font-size:1.3em;vertical-align:middle;color:#555;">search_off</span> No match found. Try a manual search above.</div>';
@@ -1592,10 +1622,12 @@
 		var artistEl = document.getElementById('mb-batch-artist-' + idx);
 		var albumEl = document.getElementById('mb-batch-album-' + idx);
 		var yearEl = document.getElementById('mb-batch-year-' + idx);
+		var genreEl = document.getElementById('mb-batch-genre-' + idx);
 		if (titleEl) t.metadata.title = titleEl.value.trim();
 		if (artistEl) t.metadata.artist = artistEl.value.trim();
 		if (albumEl) t.metadata.album = albumEl.value.trim();
 		if (yearEl) t.metadata.year = yearEl.value.trim();
+		if (genreEl) t.metadata.genre = genreEl.value.trim();
 	}
 
 	function updateBatchMatchCount() {
