@@ -520,6 +520,8 @@
 			var useManualOnly = document.getElementById('mb-ignore-brainz') && document.getElementById('mb-ignore-brainz').checked;
 			var selectedResult = (!useManualOnly && mbPendingDownload && mbPendingDownload.mbResults && mbSelectedIdx >= 0) ? mbPendingDownload.mbResults[mbSelectedIdx] : null;
 			var trackNumber = selectedResult ? (selectedResult.trackNumber || '') : '';
+			// Single track in folder: when using manual metadata, prefix filename with "1."
+			if ((useManualOnly || !selectedResult) && (trackTitle || artist)) trackNumber = '1';
 			if (!genre && selectedResult && selectedResult.genre) genre = selectedResult.genre;
 			var artistMbid = selectedResult ? (selectedResult.artistMbid || '') : '';
 			var releaseMbid = selectedResult ? (selectedResult.releaseMbid || '') : '';
@@ -2067,16 +2069,31 @@
 		document.getElementById('mb-batch-modal').style.display = 'none';
 		if (!mbBatchPending) return;
 
+		// Folder key = (artist, album); count tracks per folder for "only track in folder" rule
+		var folderCount = {};
+		for (var i = 0; i < mbBatchTracks.length; i++) {
+			var t = mbBatchTracks[i];
+			if (t.metadata && (t.metadata.title || t.metadata.artist)) {
+				var key = (t.metadata.artist || '') + '\0' + (t.metadata.album || '');
+				folderCount[key] = (folderCount[key] || 0) + 1;
+			}
+		}
+
 		var metadataArray = [];
 		for (var i = 0; i < mbBatchTracks.length; i++) {
 			var t = mbBatchTracks[i];
 			if (t.metadata && (t.metadata.title || t.metadata.artist)) {
+				var manualMeta = !t.metadata.releaseMbid;
+				var folderKey = (t.metadata.artist || '') + '\0' + (t.metadata.album || '');
+				var onlyInFolder = (folderCount[folderKey] || 0) === 1;
+				var trackNum = t.metadata.trackNumber || '';
+				if (manualMeta && onlyInFolder) trackNum = '1';
 				metadataArray.push({
 					Title: t.metadata.title || '',
 					Artist: t.metadata.artist || '',
 					Album: t.metadata.album || '',
 					Year: t.metadata.year || '',
-					TrackNumber: t.metadata.trackNumber || '',
+					TrackNumber: trackNum,
 					Genre: t.metadata.genre || '',
 					ArtistMbid: t.metadata.artistMbid || '',
 					ReleaseMbid: t.metadata.releaseMbid || '',

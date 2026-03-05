@@ -149,6 +149,68 @@ public static class MusicPostProcessor
         tag.SetField(fieldName, value);
     }
 
+    /// <summary>
+    /// Computes the expected directory and filename for a file according to FinTube rules.
+    /// Album: baseDir/Artist/Album, filename "TrackNumber. Title.ext" or "Title.ext".
+    /// Single (no album): baseDir/Artist/Title (folder named after track), filename "1. Title.ext".
+    /// </summary>
+    public static (string fullDir, string fileName) GetExpectedOrganizedPath(string baseDir, MusicMetadata metadata, string fileExtension)
+    {
+        var artist = SanitizePathSegment(metadata.Artist);
+        var album = SanitizePathSegment(metadata.Album);
+        if (!fileExtension.StartsWith(".", StringComparison.Ordinal))
+            fileExtension = "." + fileExtension;
+        var title = SanitizePathSegment(metadata.Title);
+
+        string fullDir;
+        string fileName;
+        if (string.IsNullOrWhiteSpace(album))
+        {
+            // Single: folder = Artist/TrackTitle, filename = 1. Title.ext
+            var singleFolder = string.IsNullOrWhiteSpace(title) ? "Single" : title;
+            fullDir = Path.Combine(baseDir, artist, singleFolder);
+            fileName = string.IsNullOrWhiteSpace(title) ? $"1. Single{fileExtension}" : $"1. {title}{fileExtension}";
+        }
+        else
+        {
+            fullDir = Path.Combine(baseDir, artist, album);
+            fileName = !string.IsNullOrWhiteSpace(metadata.TrackNumber)
+                ? $"{metadata.TrackNumber}. {title}{fileExtension}"
+                : $"{title}{fileExtension}";
+        }
+        return (fullDir, fileName);
+    }
+
+    /// <summary>
+    /// Reads music metadata from an audio file using TagLib. Returns null on failure or if file cannot be read.
+    /// </summary>
+    public static MusicMetadata? ReadMetadataFromFile(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath) || !System.IO.File.Exists(filePath))
+            return null;
+        try
+        {
+            using var tagFile = TagLib.File.Create(filePath);
+            var tag = tagFile.Tag;
+            var artist = tag.AlbumArtists?.FirstOrDefault() ?? tag.Performers?.FirstOrDefault() ?? "";
+            var title = tag.Title ?? Path.GetFileNameWithoutExtension(filePath) ?? "";
+            return new MusicMetadata
+            {
+                Title = title?.Trim() ?? "",
+                Artist = artist?.Trim() ?? "",
+                Album = tag.Album?.Trim() ?? "",
+                Year = tag.Year > 0 ? tag.Year.ToString() : "",
+                TrackNumber = tag.Track > 0 ? tag.Track.ToString() : "",
+                TotalTracks = (int)tag.TrackCount,
+                Genre = tag.Genres?.FirstOrDefault()?.Trim() ?? ""
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public static string? OrganizeFile(string filePath, MusicMetadata metadata, ILogger logger)
     {
         filePath = ResolvePath(filePath, logger) ?? filePath;
@@ -162,21 +224,26 @@ public static class MusicPostProcessor
         if (string.IsNullOrWhiteSpace(artist)) return null;
 
         var baseDir = Path.GetDirectoryName(filePath)!;
-        var album = SanitizePathSegment(metadata.Album);
-
-        var subDir = !string.IsNullOrWhiteSpace(album)
-            ? Path.Combine(baseDir, artist, album)
-            : Path.Combine(baseDir, artist);
-        Directory.CreateDirectory(subDir);
-
         var ext = Path.GetExtension(filePath);
-        var title = !string.IsNullOrWhiteSpace(metadata.Title)
-            ? SanitizePathSegment(metadata.Title)
-            : Path.GetFileNameWithoutExtension(filePath);
-        var fileName = !string.IsNullOrWhiteSpace(metadata.TrackNumber)
-            ? $"{metadata.TrackNumber}. {title}{ext}"
-            : $"{title}{ext}";
-
+        var metaForPath = metadata;
+        if (string.IsNullOrWhiteSpace(metadata.Title))
+        {
+            metaForPath = new MusicMetadata
+            {
+                Title = Path.GetFileNameWithoutExtension(filePath) ?? "",
+                Artist = metadata.Artist,
+                Album = metadata.Album,
+                Year = metadata.Year,
+                TrackNumber = metadata.TrackNumber,
+                TotalTracks = metadata.TotalTracks,
+                Genre = metadata.Genre,
+                ArtistMbid = metadata.ArtistMbid,
+                ReleaseMbid = metadata.ReleaseMbid,
+                RecordingMbid = metadata.RecordingMbid
+            };
+        }
+        var (subDir, fileName) = GetExpectedOrganizedPath(baseDir, metaForPath, ext);
+        Directory.CreateDirectory(subDir);
         var destPath = Path.Combine(subDir, fileName);
         if (string.Equals(destPath, filePath, StringComparison.OrdinalIgnoreCase))
             return filePath;
