@@ -101,9 +101,17 @@ public class ReorganizeMusicTask : IScheduledTask
                 continue;
             }
 
+            var normalizedMetadata = MusicPostProcessor.NormalizeMetadataForOrganization(currentPath, metadata);
+            if (!string.Equals(metadata.Title, normalizedMetadata.Title, StringComparison.Ordinal)
+                || !string.Equals(metadata.Album, normalizedMetadata.Album, StringComparison.Ordinal)
+                || !string.Equals(metadata.TrackNumber, normalizedMetadata.TrackNumber, StringComparison.Ordinal))
+            {
+                if (MusicPostProcessor.SaveMetadataToFile(currentPath, normalizedMetadata, _logger))
+                    reportLines.Add($"UPDATED METADATA: {currentPath} (album/title/track fallback applied)");
+            }
+
             var ext = Path.GetExtension(currentPath);
-            if (string.IsNullOrWhiteSpace(metadata.Title))
-                metadata = new MusicMetadata { Title = Path.GetFileNameWithoutExtension(currentPath) ?? "", Artist = metadata.Artist, Album = metadata.Album, Year = metadata.Year, TrackNumber = metadata.TrackNumber, TotalTracks = metadata.TotalTracks, Genre = metadata.Genre, ArtistMbid = metadata.ArtistMbid, ReleaseMbid = metadata.ReleaseMbid, RecordingMbid = metadata.RecordingMbid };
+            metadata = normalizedMetadata;
 
             var (expectedDir, expectedFileName) = MusicPostProcessor.GetExpectedOrganizedPath(basePath, metadata, ext);
             var expectedPath = Path.Combine(expectedDir, expectedFileName);

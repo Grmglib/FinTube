@@ -45,12 +45,14 @@ public static class MusicPostProcessor
             return;
         }
 
+        var normalizedMetadata = NormalizeMetadataForOrganization(filePath, metadata);
+
         try
         {
             using var tagFile = TagLib.File.Create(filePath);
 
-            WriteMetadata(tagFile, metadata, logger);
-            await ReplaceCoverArt(tagFile, metadata.ReleaseMbid, logger);
+            WriteMetadata(tagFile, normalizedMetadata, logger);
+            await ReplaceCoverArt(tagFile, normalizedMetadata.ReleaseMbid, logger);
 
             tagFile.Save();
             logger.LogInformation("PostProcessor: successfully processed '{path}'", filePath);
@@ -90,6 +92,52 @@ public static class MusicPostProcessor
             tag.Genres = new[] { metadata.Genre };
 
         WriteMusicBrainzIds(tagFile, metadata, logger);
+    }
+
+    public static MusicMetadata NormalizeMetadataForOrganization(string? filePath, MusicMetadata metadata)
+    {
+        var normalized = CloneMetadata(metadata);
+        normalized.Title = (normalized.Title ?? string.Empty).Trim();
+        normalized.Artist = (normalized.Artist ?? string.Empty).Trim();
+        normalized.Album = (normalized.Album ?? string.Empty).Trim();
+        normalized.Year = (normalized.Year ?? string.Empty).Trim();
+        normalized.TrackNumber = (normalized.TrackNumber ?? string.Empty).Trim();
+        normalized.Genre = (normalized.Genre ?? string.Empty).Trim();
+
+        if (string.IsNullOrWhiteSpace(normalized.Title) && !string.IsNullOrWhiteSpace(filePath))
+            normalized.Title = Path.GetFileNameWithoutExtension(filePath) ?? string.Empty;
+
+        if (ShouldApplySingleAlbumFallback(normalized))
+        {
+            normalized.Album = normalized.Title;
+            if (!HasValidTrackNumber(normalized.TrackNumber))
+                normalized.TrackNumber = "1";
+        }
+
+        return normalized;
+    }
+
+    public static bool SaveMetadataToFile(string filePath, MusicMetadata metadata, ILogger logger)
+    {
+        filePath = ResolvePath(filePath, logger) ?? filePath;
+        if (string.IsNullOrWhiteSpace(filePath) || !System.IO.File.Exists(filePath))
+        {
+            logger.LogWarning("PostProcessor: cannot save metadata, file not found: '{path}'", filePath);
+            return false;
+        }
+
+        try
+        {
+            using var tagFile = TagLib.File.Create(filePath);
+            WriteMetadata(tagFile, metadata, logger);
+            tagFile.Save();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "PostProcessor: failed to save normalized metadata for '{path}'", filePath);
+            return false;
+        }
     }
 
     private static void WriteMusicBrainzIds(TagLib.File tagFile, MusicMetadata metadata, ILogger logger)
@@ -220,28 +268,12 @@ public static class MusicPostProcessor
             return null;
         }
 
-        var artist = SanitizePathSegment(metadata.Artist);
+        var metaForPath = NormalizeMetadataForOrganization(filePath, metadata);
+        var artist = SanitizePathSegment(metaForPath.Artist);
         if (string.IsNullOrWhiteSpace(artist)) return null;
 
         var baseDir = Path.GetDirectoryName(filePath)!;
         var ext = Path.GetExtension(filePath);
-        var metaForPath = metadata;
-        if (string.IsNullOrWhiteSpace(metadata.Title))
-        {
-            metaForPath = new MusicMetadata
-            {
-                Title = Path.GetFileNameWithoutExtension(filePath) ?? "",
-                Artist = metadata.Artist,
-                Album = metadata.Album,
-                Year = metadata.Year,
-                TrackNumber = metadata.TrackNumber,
-                TotalTracks = metadata.TotalTracks,
-                Genre = metadata.Genre,
-                ArtistMbid = metadata.ArtistMbid,
-                ReleaseMbid = metadata.ReleaseMbid,
-                RecordingMbid = metadata.RecordingMbid
-            };
-        }
         var (subDir, fileName) = GetExpectedOrganizedPath(baseDir, metaForPath, ext);
         Directory.CreateDirectory(subDir);
         var destPath = Path.Combine(subDir, fileName);
@@ -346,6 +378,47 @@ public static class MusicPostProcessor
         var invalid = Path.GetInvalidFileNameChars();
         var sanitized = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
         return sanitized.Trim().TrimEnd('.');
+    }
+
+    private static MusicMetadata CloneMetadata(MusicMetadata metadata)
+    {
+        return new MusicMetadata
+        {
+            Title = metadata.Title,
+            Artist = metadata.Artist,
+            Album = metadata.Album,
+            Year = metadata.Year,
+            TrackNumber = metadata.TrackNumber,
+            TotalTracks = metadata.TotalTracks,
+            Genre = metadata.Genre,
+            ArtistMbid = metadata.ArtistMbid,
+            ReleaseMbid = metadata.ReleaseMbid,
+            RecordingMbid = metadata.RecordingMbid
+        };
+    }
+
+    private static bool ShouldApplySingleAlbumFallback(MusicMetadata metadata)
+    {
+        if (!string.IsNullOrWhiteSpace(metadata.Album) || string.IsNullOrWhiteSpace(metadata.Title))
+            return false;
+
+        if (metadata.TotalTracks > 0)
+            return metadata.TotalTracks == 1;
+
+        if (TryParseTrackNumber(metadata.TrackNumber, out var trackNumber))
+            return trackNumber <= 1;
+
+        return true;
+    }
+
+    private static bool HasValidTrackNumber(string? trackNumber)
+    {
+        return TryParseTrackNumber(trackNumber, out var parsedTrackNumber) && parsedTrackNumber > 0;
+    }
+
+    private static bool TryParseTrackNumber(string? trackNumber, out int parsedTrackNumber)
+    {
+        return int.TryParse((trackNumber ?? string.Empty).Trim(), out parsedTrackNumber);
     }
 
     private static async Task ReplaceCoverArt(TagLib.File tagFile, string releaseMbid, ILogger logger)
